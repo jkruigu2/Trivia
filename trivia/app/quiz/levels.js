@@ -1,13 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, Dimensions, Alert } from 'react-native';
 import Svg, { Path, Circle, G, Text as SvgText, Defs, LinearGradient, Stop } from 'react-native-svg';
-
-const { width, height } = Dimensions.get('window');
-import { useRouter } from 'expo-router';
-import { useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// We use percentages of the actual screen height now
+const { width, height } = Dimensions.get('window');
+
 const levels = [
   { id: 1, x: width * 0.5,  y: height * 0.80, grad: "pinkGrad" },
   { id: 2, x: width * 0.3,  y: height * 0.75, grad: "purpleGrad" },
@@ -20,11 +18,12 @@ const levels = [
   { id: 9, x: width * 0.2,  y: height * 0.15, grad: "pinkGrad" },
 ];
 
-const LevelMap = () => {
+export default function LevelMap() {
+  const [unlockedLevel, setUnlockedLevel] = useState(1);
   const router = useRouter();
   const params = useLocalSearchParams();
-  
-  
+
+  // Helper to generate the curved path between nodes
   const generatePath = () => {
     if (levels.length < 2) return "";
     let d = `M ${levels[0].x} ${levels[0].y}`;
@@ -37,53 +36,75 @@ const LevelMap = () => {
     }
     return d;
   };
-  
+
   const storeData = async (value) => {
-  try {
-    const jsonValue = JSON.stringify(value);
-    await AsyncStorage.setItem('levelData', jsonValue);
-  } catch (e) {
-    // saving error
-  }
-};
-
-// Reading data
- async function getData() {
-    const jsonValue = await AsyncStorage.getItem('levelData');
-     if(jsonValue === null){
-        JSON.parse(storeData({
-          'counties':[1,1,1],
-          'culture':[1,1,1],
-          'world':[1,1,1],
-          'president':[1,1,1],
-          'history':[1,1,1],
-          'geography':[1,1,1]
-        }))
-       }else{
-         var data = JSON.parse(jsonValue)
-         let x = params.difficulty === 'easy'?0:params.didifficulty === 'medium'?1:2;
-         return data[`${params.name}`][x]
-       }
-};
-
-
-
-const handleLevel = async ({level}) => {
-    const {id}=level;
-    const l = await getData();
-   // if(id <= l){
-     router.push({
-       pathname: '/quiz/QuizScreen',
-       params: {
-         ...params,
-         level:id
-       },
-     });
-   // }
+    try {
+      const jsonValue = JSON.stringify(value);
+      await AsyncStorage.setItem('levelData', jsonValue);
+    } catch (e) {
+      console.error("Error saving data", e);
+    }
   };
+
+  const getData = async () => {
+    try {
+      const jsonValue = await AsyncStorage.getItem('levelData');
+      let data;
+      
+      if (jsonValue === null) {
+        // Initializing default data
+        data = {
+          'counties': [1, 1, 1],
+          'culture': [1, 1, 1],
+          'world': [1, 1, 1],
+          'president': [1, 1, 1],
+          'history': [1, 1, 1],
+          'geography': [1, 1, 1]
+        };
+        await storeData(data);
+      } else {
+        data = JSON.parse(jsonValue);
+      }
+
+      // Logic for difficulty mapping
+      const diffMap = { easy: 0, medium: 1, hard: 2 };
+      const index = diffMap[params.difficulty] ?? 0;
+      
+      return data[params.name] ? data[params.name][index] : 1;
+    } catch (e) {
+      return 1;
+    }
+  };
+
+  useEffect(() => {
+    async function initMap() {
+      const level = await getData();
+      setUnlockedLevel(level);
+    }
+    initMap();
+  }, []);
+
+  const handleLevelPress = (levelId) => {
+    if (levelId <= unlockedLevel) {
+      router.push({
+        pathname: '/quiz/QuizScreen',
+        params: {
+          ...params,
+          level: levelId
+        },
+      });
+    } else {
+      // The Alert triggered for locked levels
+      Alert.alert(
+        "Level Locked",
+        "You need to complete previous levels to unlock this stage!",
+        [{ text: "Got it", style: "cancel" }]
+      );
+    }
+  };
+
   return (
     <View style={styles.container}>
-      {/* Svg now simply fills the flex container */}
       <Svg height="100%" width="100%">
         <Defs>
           <LinearGradient id="pinkGrad" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -106,45 +127,52 @@ const handleLevel = async ({level}) => {
           stroke="white"
           strokeWidth="6"
           strokeDasharray="10, 8"
-          opacity={0.4}
+          opacity={0.3}
         />
 
-        {levels.map((level) => (
-          <G 
-            key={level.id} 
-            onPress={() => handleLevel({level})}
-          >
-            <Circle cx={level.x} cy={level.y} r="28" fill="white" opacity={0.2} />
-            <Circle 
-              cx={level.x} 
-              cy={level.y} 
-              r="24" 
-              fill={`url(#${level.grad})`} 
-              stroke="white" 
-              strokeWidth="2" 
-            />
-            <SvgText
-              x={level.x}
-              y={level.y + 5}
-              fill="white"
-              fontSize="12"
-              fontWeight="bold"
-              textAnchor="middle"
+        {levels.map((level) => {
+          const isLocked = level.id > unlockedLevel;
+          return (
+            <G 
+              key={level.id} 
+              onPress={() => handleLevelPress(level.id)}
+              opacity={isLocked ? 0.5 : 1} // Visual feedback for locked levels
             >
-              {level.id}
-            </SvgText>
-          </G>
-        ))}
+              <Circle cx={level.x} cy={level.y} r="28" fill="white" opacity={0.2} />
+              <Circle 
+                cx={level.x} 
+                cy={level.y} 
+                r="24" 
+                fill={`url(#${level.grad})`} 
+                stroke="white" 
+                strokeWidth={isLocked ? 0 : 2} 
+              />
+              <SvgText
+                x={level.x}
+                y={level.y + 5}
+                fill="white"
+                fontSize="12"
+                fontWeight="bold"
+                textAnchor="middle"
+              >
+                {isLocked ? "🔒" : level.id}
+              </SvgText>
+            </G>
+          );
+        })}
       </Svg>
 
-      {/* Fixed UI Header */}
       <View style={styles.header}>
-        <View style={styles.stats}><Text style={styles.statText}>❤️ 1</Text></View>
-        <View style={styles.stats}><Text style={styles.statText}>💰 60</Text></View>
+        <View style={styles.stats}>
+          <Text style={styles.statText}>Level {unlockedLevel} Unlocked</Text>
+        </View>
+        <View style={styles.stats}>
+          <Text style={styles.statText}>💰 60</Text>
+        </View>
       </View>
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: { 
@@ -169,5 +197,3 @@ const styles = StyleSheet.create({
   },
   statText: { color: 'white', fontWeight: 'bold' }
 });
-
-export default LevelMap;
