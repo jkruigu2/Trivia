@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TouchableOpacity,
-  StyleSheet,
   SafeAreaView,
   ActivityIndicator,
   Animated,
@@ -13,7 +12,8 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { styles } from './styles'
+import * as Haptics from 'expo-haptics';
+import { styles } from './styles';
 
 const allData = require('./src/data.json');
 
@@ -21,10 +21,19 @@ export default function App() {
   const params = useLocalSearchParams();
   const router = useRouter();
 
+  // --- Game State ---
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [score, setScore] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [gameOverReason, setGameOverReason] = useState(null);
+  const [selectedOption, setSelectedOption] = useState(null);
+  const [feedback, setFeedback] = useState(null);
+  const [paused, setPaused] = useState(false);
 
+  // --- Logic Helpers ---
   const intLevel = parseInt(params.level, 10);
   const quizData = allData.filter(q =>
     q.difficulty === params.difficulty &&
@@ -34,20 +43,12 @@ export default function App() {
 
   const timePerQuestion = params.difficulty === "easy" ? 20 : params.difficulty === "medium" ? 15 : 10;
   const totalTime = quizData.length * timePerQuestion;
-
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [score, setScore] = useState(0);
-  const [lives, setLives] = useState(3);
   const [timeLeft, setTimeLeft] = useState(totalTime);
-  const [gameOverReason, setGameOverReason] = useState(null);
-  const [selectedOption, setSelectedOption] = useState(null);
-  const [feedback, setFeedback] = useState(null);
-  const [paused, setPaused] = useState(false);
 
   const timerRef = useRef(null);
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  // ── Falling stars background ───────────────────────────────────────
+  // --- Falling Stars Animation ---
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const numStars = 50;
 
@@ -59,7 +60,7 @@ export default function App() {
       size: Math.random() * 3 + 1.2,
       opacity: new Animated.Value(Math.random() * 0.4 + 0.4),
       delay: Math.random() * 8000,
-      duration: Math.random() * 10000 + 14000, // 14–24 seconds fall
+      duration: Math.random() * 10000 + 14000,
     }))
   ).current;
 
@@ -67,7 +68,6 @@ export default function App() {
     const animations = stars.map(star => {
       return Animated.loop(
         Animated.sequence([
-          // Twinkle
           Animated.timing(star.opacity, {
             toValue: 0.15,
             duration: 1400,
@@ -79,7 +79,6 @@ export default function App() {
             duration: 1800,
             useNativeDriver: true,
           }),
-          // Fall
           Animated.timing(star.y, {
             toValue: screenHeight + 100,
             duration: star.duration,
@@ -87,7 +86,6 @@ export default function App() {
             useNativeDriver: true,
             delay: star.delay,
           }),
-          // Reset to top
           Animated.timing(star.y, {
             toValue: -100,
             duration: 0,
@@ -96,14 +94,11 @@ export default function App() {
         ])
       );
     });
-
     animations.forEach(anim => anim.start());
-
-    return () => {
-      animations.forEach(anim => anim.stop());
-    };
+    return () => animations.forEach(anim => anim.stop());
   }, []);
 
+  // --- Initialization ---
   useEffect(() => {
     if (!Array.isArray(quizData) || quizData.length === 0) {
       setError('No questions found for this level');
@@ -114,17 +109,17 @@ export default function App() {
     }
   }, [params.name, params.level]);
 
+  // --- Timer Logic ---
   const tick = () => {
     if (paused || gameOverReason) return;
-
     setTimeLeft((prev) => {
       if (prev <= 1) {
         setGameOverReason('time_up');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         return 0;
       }
       return prev - 1;
     });
-
     timerRef.current = setTimeout(tick, 1000);
   };
 
@@ -133,14 +128,11 @@ export default function App() {
       if (timerRef.current) clearTimeout(timerRef.current);
       return;
     }
-
     timerRef.current = setTimeout(tick, 1000);
-
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [loading, gameOverReason, paused, timeLeft]);
 
+  // --- Game Actions ---
   const handleAnswer = (selected) => {
     if (gameOverReason || selectedOption || paused) return;
 
@@ -150,11 +142,14 @@ export default function App() {
     setFeedback(isCorrect ? 'correct' : 'wrong');
 
     if (isCorrect) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setScore((prev) => prev + 1);
       Animated.sequence([
-        Animated.timing(scaleAnim, { toValue: 1.08, duration: 120, useNativeDriver: true }),
-        Animated.timing(scaleAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+        Animated.timing(scaleAnim, { toValue: 1.1, duration: 100, useNativeDriver: true }),
+        Animated.timing(scaleAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
       ]).start();
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
 
     setTimeout(() => {
@@ -163,6 +158,7 @@ export default function App() {
 
       if (newLives <= 0) {
         setGameOverReason('no_lives');
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       } else if (currentIndex + 1 >= questions.length) {
         setGameOverReason('completed');
       } else {
@@ -176,7 +172,7 @@ export default function App() {
   const saveBestTime = async () => {
     try {
       const timeSpent = totalTime - timeLeft;
-      const key = `bestTime_\( {params.name}_ \){params.difficulty}_${params.level}`;
+      const key = `bestTime_${params.name}_${params.difficulty}_${params.level}`;
       const existing = await AsyncStorage.getItem(key);
       if (!existing || timeSpent < parseInt(existing, 10)) {
         await AsyncStorage.setItem(key, timeSpent.toString());
@@ -192,7 +188,6 @@ export default function App() {
         president: [1, 1, 1], history: [1, 1, 1], geography: [1, 1, 1]
       };
       const diffIdx = params.difficulty === 'easy' ? 0 : params.difficulty === 'medium' ? 1 : 2;
-
       if (!storageData[params.name]) storageData[params.name] = [1, 1, 1];
 
       if (storageData[params.name][diffIdx] <= intLevel) {
@@ -203,6 +198,7 @@ export default function App() {
   };
 
   const updateLevel = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await saveBestTime();
     await saveProgressToStorage();
     Alert.alert("Congrats!", `Level ${intLevel + 1} unlocked!`, [
@@ -212,6 +208,7 @@ export default function App() {
   };
 
   const restart = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setCurrentIndex(0);
     setScore(0);
     setLives(3);
@@ -220,6 +217,11 @@ export default function App() {
     setSelectedOption(null);
     setFeedback(null);
     setPaused(false);
+  };
+
+  const handlePauseToggle = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPaused(!paused);
   };
 
   if (loading) return <LoadingScreen />;
@@ -241,7 +243,7 @@ export default function App() {
 
   return (
     <View style={[styles.container, { position: 'relative' }]}>
-      {/* Falling stars layer */}
+      {/* Falling stars background */}
       {stars.map(star => (
         <Animated.View
           key={star.id}
@@ -255,7 +257,6 @@ export default function App() {
             borderRadius: star.size / 2,
             backgroundColor: '#ffffff',
             shadowColor: '#ffffff',
-            shadowOffset: { width: 0, height: 0 },
             shadowOpacity: 0.95,
             shadowRadius: star.size * 1.5,
             elevation: 6,
@@ -263,10 +264,10 @@ export default function App() {
         />
       ))}
 
-      {/* Main game content */}
+      {/* Main game UI */}
       <View style={styles.header}>
         <Text style={styles.headerLeft}>{currentIndex + 1}/{questions.length}</Text>
-        <TouchableOpacity style={styles.pauseBtnSmall} onPress={() => setPaused(true)}>
+        <TouchableOpacity style={styles.pauseBtnSmall} onPress={handlePauseToggle}>
           <Text style={styles.pauseText}>⏸</Text>
         </TouchableOpacity>
         <Text style={[styles.timer, timeLeft <= 7 && styles.timerDanger]}>{timeLeft}s</Text>
@@ -274,7 +275,7 @@ export default function App() {
       </View>
 
       <View style={styles.progressContainer}>
-        <View style={[styles.progressFill, { width: `${((currentIndex + 1) / questions.length) * 100}%` }]} />
+        <Animated.View style={[styles.progressFill, { width: `${((currentIndex + 1) / questions.length) * 100}%` }]} />
       </View>
 
       <View style={styles.questionCard}>
@@ -292,7 +293,7 @@ export default function App() {
           }
 
           return (
-            <Animated.View key={option} style={{ transform: [{ scale: scaleAnim }] }}>
+            <Animated.View key={option} style={{ transform: [{ scale: selectedOption === option ? scaleAnim : 1 }] }}>
               <TouchableOpacity
                 style={bStyle}
                 onPress={() => handleAnswer(option)}
@@ -309,7 +310,7 @@ export default function App() {
         <View style={styles.pauseOverlay}>
           <View style={styles.modal}>
             <Text style={styles.modalTitle}>Paused</Text>
-            <TouchableOpacity style={styles.modalBtn} onPress={() => setPaused(false)}>
+            <TouchableOpacity style={styles.modalBtn} onPress={handlePauseToggle}>
               <Text style={styles.modalBtnText}>RESUME</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -325,14 +326,14 @@ export default function App() {
   );
 }
 
-// ── SUB COMPONENTS ────────────────────────────────────────────────
+// --- Sub-components ---
 function GameOverScreen({ reason, score, total, timeTaken, onRestart, levelUp, params }) {
   const isWinner = reason === 'completed' && score >= (total * 0.6);
   const [best, setBest] = useState(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(`bestTime_\( {params.name}_ \){params.difficulty}_${params.level}`)
-      .then(value => setBest(value));
+    const key = `bestTime_${params.name}_${params.difficulty}_${params.level}`;
+    AsyncStorage.getItem(key).then(value => setBest(value));
   }, []);
 
   return (
@@ -372,4 +373,3 @@ function ErrorScreen({ message }) {
     </View>
   );
 }
-
