@@ -21,7 +21,6 @@ export default function App() {
   const params = useLocalSearchParams();
   const router = useRouter();
 
-  // --- Game State ---
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -33,7 +32,6 @@ export default function App() {
   const [feedback, setFeedback] = useState(null);
   const [paused, setPaused] = useState(false);
 
-  // --- Logic Helpers ---
   const intLevel = parseInt(params.level, 10);
   const quizData = allData.filter(q =>
     q.difficulty === params.difficulty &&
@@ -48,180 +46,128 @@ export default function App() {
   const timerRef = useRef(null);
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  // --- Falling Stars Animation ---
-  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-  const numStars = 50;
-
-  const stars = useRef(
-    Array.from({ length: numStars }, (_, i) => ({
-      id: i,
-      x: Math.random() * screenWidth,
-      y: new Animated.Value(Math.random() * -screenHeight - 100),
-      size: Math.random() * 3 + 1.2,
-      opacity: new Animated.Value(Math.random() * 0.4 + 0.4),
-      delay: Math.random() * 8000,
-      duration: Math.random() * 10000 + 14000,
-    }))
-  ).current;
-
+  // --- Automatic Best Time Check ---
   useEffect(() => {
-    const animations = stars.map(star => {
-      return Animated.loop(
-        Animated.sequence([
-          Animated.timing(star.opacity, {
-            toValue: 0.15,
-            duration: 1400,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(star.opacity, {
-            toValue: Math.random() * 0.4 + 0.6,
-            duration: 1800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(star.y, {
-            toValue: screenHeight + 100,
-            duration: star.duration,
-            easing: Easing.linear,
-            useNativeDriver: true,
-            delay: star.delay,
-          }),
-          Animated.timing(star.y, {
-            toValue: -100,
-            duration: 0,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-    });
-    animations.forEach(anim => anim.start());
-    return () => animations.forEach(anim => anim.stop());
-  }, []);
+    if (gameOverReason === 'completed' && score === questions.length) {
+      checkAndSaveRecord();
+    }
+  }, [gameOverReason]);
+
+  const checkAndSaveRecord = async () => {
+    try {
+      const timeSpent = totalTime - timeLeft;
+      const key = `bestTime_${params.name}_${params.difficulty}_${params.level}`;
+      const existing = await AsyncStorage.getItem(key);
+      
+      if (!existing || timeSpent < parseInt(existing, 10)) {
+        await AsyncStorage.setItem(key, timeSpent.toString());
+        
+        // This will now trigger even if the level was already unlocked
+        Alert.alert(
+          "New Record! 🏆",
+          existing 
+            ? `You beat your old time of ${existing}s with a new best of ${timeSpent}s!` 
+            : `First time completion! Best time set: ${timeSpent}s`
+        );
+      }
+    } catch (e) { console.error(e); }
+  };
 
   // --- Initialization ---
   useEffect(() => {
     if (!Array.isArray(quizData) || quizData.length === 0) {
-      setError('No questions found for this level');
+      setError('No questions found');
       setLoading(false);
     } else {
       setQuestions(quizData);
       setLoading(false);
     }
-  }, [params.name, params.level]);
+  }, []);
 
-  // --- Timer Logic ---
-  const tick = () => {
-    if (paused || gameOverReason) return;
-    setTimeLeft((prev) => {
-      if (prev <= 1) {
-        setGameOverReason('time_up');
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        return 0;
-      }
-      return prev - 1;
+  // --- Falling Stars Background ---
+  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+  const stars = useRef(Array.from({ length: 40 }, (_, i) => ({
+    id: i,
+    x: Math.random() * screenWidth,
+    y: new Animated.Value(Math.random() * -screenHeight),
+    size: Math.random() * 2 + 1,
+    opacity: new Animated.Value(Math.random()),
+    duration: Math.random() * 10000 + 10000,
+  }))).current;
+
+  useEffect(() => {
+    stars.forEach(star => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(star.y, { toValue: screenHeight + 50, duration: star.duration, easing: Easing.linear, useNativeDriver: true }),
+          Animated.timing(star.y, { toValue: -50, duration: 0, useNativeDriver: true }),
+        ])
+      ).start();
     });
-    timerRef.current = setTimeout(tick, 1000);
-  };
+  }, []);
 
+  // --- Timer ---
   useEffect(() => {
     if (loading || gameOverReason || paused) {
       if (timerRef.current) clearTimeout(timerRef.current);
       return;
     }
-    timerRef.current = setTimeout(tick, 1000);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    timerRef.current = setTimeout(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) { setGameOverReason('time_up'); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearTimeout(timerRef.current);
   }, [loading, gameOverReason, paused, timeLeft]);
 
-  // --- Game Actions ---
   const handleAnswer = (selected) => {
     if (gameOverReason || selectedOption || paused) return;
-
     setSelectedOption(selected);
-    const current = questions[currentIndex];
-    const isCorrect = selected === current.correct;
+    const isCorrect = selected === questions[currentIndex].correct;
     setFeedback(isCorrect ? 'correct' : 'wrong');
 
     if (isCorrect) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setScore((prev) => prev + 1);
-      Animated.sequence([
-        Animated.timing(scaleAnim, { toValue: 1.1, duration: 100, useNativeDriver: true }),
-        Animated.timing(scaleAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
-      ]).start();
+      setScore(s => s + 1);
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
 
     setTimeout(() => {
-      const newLives = isCorrect ? lives : Math.max(0, lives - 1);
+      const newLives = isCorrect ? lives : lives - 1;
       setLives(newLives);
-
       if (newLives <= 0) {
         setGameOverReason('no_lives');
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       } else if (currentIndex + 1 >= questions.length) {
         setGameOverReason('completed');
       } else {
-        setCurrentIndex((prev) => prev + 1);
+        setCurrentIndex(prev => prev + 1);
         setSelectedOption(null);
         setFeedback(null);
       }
-    }, 1200);
+    }, 1000);
   };
 
-  const saveBestTime = async () => {
-    try {
-      const timeSpent = totalTime - timeLeft;
-      const key = `bestTime_${params.name}_${params.difficulty}_${params.level}`;
-      const existing = await AsyncStorage.getItem(key);
-      if (!existing || timeSpent < parseInt(existing, 10)) {
-        await AsyncStorage.setItem(key, timeSpent.toString());
-      }
-    } catch (e) { console.error(e); }
-  };
-
-  const saveProgressToStorage = async () => {
+  const unlockNextLevel = async () => {
     try {
       const jsonValue = await AsyncStorage.getItem('levelData');
-      let storageData = jsonValue ? JSON.parse(jsonValue) : {
-        science: [1, 1, 1], technology: [1, 1, 1], sports: [1, 1, 1],
-        president: [1, 1, 1], history: [1, 1, 1], geography: [1, 1, 1]
-      };
+      let storageData = jsonValue ? JSON.parse(jsonValue) : {};
       const diffIdx = params.difficulty === 'easy' ? 0 : params.difficulty === 'medium' ? 1 : 2;
+      
       if (!storageData[params.name]) storageData[params.name] = [1, 1, 1];
-
       if (storageData[params.name][diffIdx] <= intLevel) {
         storageData[params.name][diffIdx] = intLevel + 1;
         await AsyncStorage.setItem('levelData', JSON.stringify(storageData));
       }
+      router.back();
     } catch (e) { console.error(e); }
   };
 
-  const updateLevel = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await saveBestTime();
-    await saveProgressToStorage();
-    Alert.alert("Congrats!", `Level ${intLevel + 1} unlocked!`, [
-      { text: "Play Again", onPress: restart },
-      { text: "Go to Levels", onPress: () => router.back() }
-    ]);
-  };
-
   const restart = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setCurrentIndex(0);
-    setScore(0);
-    setLives(3);
-    setTimeLeft(totalTime);
-    setGameOverReason(null);
-    setSelectedOption(null);
-    setFeedback(null);
-    setPaused(false);
-  };
-
-  const handlePauseToggle = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setPaused(!paused);
+    setCurrentIndex(0); setScore(0); setLives(3);
+    setTimeLeft(totalTime); setGameOverReason(null);
+    setSelectedOption(null); setFeedback(null); setPaused(false);
   };
 
   if (loading) return <LoadingScreen />;
@@ -235,141 +181,105 @@ export default function App() {
         total={questions.length}
         timeTaken={totalTime - timeLeft}
         onRestart={restart}
-        levelUp={updateLevel}
+        onUnlock={unlockNextLevel}
         params={params}
+        intLevel={intLevel}
       />
     );
   }
 
   return (
-    <View style={[styles.container, { position: 'relative' }]}>
-      {/* Falling stars background */}
+    <View style={styles.container}>
       {stars.map(star => (
-        <Animated.View
-          key={star.id}
-          style={{
-            position: 'absolute',
-            left: star.x,
-            transform: [{ translateY: star.y }],
-            opacity: star.opacity,
-            width: star.size,
-            height: star.size,
-            borderRadius: star.size / 2,
-            backgroundColor: '#ffffff',
-            shadowColor: '#ffffff',
-            shadowOpacity: 0.95,
-            shadowRadius: star.size * 1.5,
-            elevation: 6,
-          }}
-        />
+        <Animated.View key={star.id} style={[styles.star, { left: star.x, transform: [{ translateY: star.y }], opacity: star.opacity, width: star.size, height: star.size }]} />
       ))}
-
-      {/* Main game UI */}
       <View style={styles.header}>
         <Text style={styles.headerLeft}>{currentIndex + 1}/{questions.length}</Text>
-        <TouchableOpacity style={styles.pauseBtnSmall} onPress={handlePauseToggle}>
-          <Text style={styles.pauseText}>⏸</Text>
-        </TouchableOpacity>
-        <Text style={[styles.timer, timeLeft <= 7 && styles.timerDanger]}>{timeLeft}s</Text>
+        <TouchableOpacity onPress={() => setPaused(!paused)}><Text style={styles.pauseText}>⏸</Text></TouchableOpacity>
+        <Text style={[styles.timer, timeLeft < 10 && { color: 'red' }]}>{timeLeft}s</Text>
         <Text style={styles.livesText}>{'❤️'.repeat(lives)}</Text>
       </View>
-
-      <View style={styles.progressContainer}>
-        <Animated.View style={[styles.progressFill, { width: `${((currentIndex + 1) / questions.length) * 100}%` }]} />
-      </View>
-
       <View style={styles.questionCard}>
         <Text style={styles.questionText}>{questions[currentIndex]?.question}</Text>
       </View>
-
       <View style={styles.optionsContainer}>
-        {questions[currentIndex]?.options.map((option) => {
-          let bStyle = styles.option;
-          if (selectedOption === option) {
-            bStyle = feedback === 'correct' ? [styles.option, styles.optionCorrect] : [styles.option, styles.optionWrong];
-          }
-          if (selectedOption && option === questions[currentIndex].correct) {
-            bStyle = [styles.option, styles.optionCorrect];
-          }
-
-          return (
-            <Animated.View key={option} style={{ transform: [{ scale: selectedOption === option ? scaleAnim : 1 }] }}>
-              <TouchableOpacity
-                style={bStyle}
-                onPress={() => handleAnswer(option)}
-                disabled={!!selectedOption || paused}
-              >
-                <Text style={styles.optionText}>{option}</Text>
-              </TouchableOpacity>
-            </Animated.View>
-          );
-        })}
+        {questions[currentIndex]?.options.map((option) => (
+          <TouchableOpacity 
+            key={option} 
+            style={[styles.option, selectedOption === option && (feedback === 'correct' ? styles.optionCorrect : styles.optionWrong), selectedOption && option === questions[currentIndex].correct && styles.optionCorrect]}
+            onPress={() => handleAnswer(option)}
+            disabled={!!selectedOption}
+          >
+            <Text style={styles.optionText}>{option}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
-
-      {paused && (
-        <View style={styles.pauseOverlay}>
-          <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Paused</Text>
-            <TouchableOpacity style={styles.modalBtn} onPress={handlePauseToggle}>
-              <Text style={styles.modalBtnText}>RESUME</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modalBtn, { backgroundColor: '#6366F1' }]}
-              onPress={restart}
-            >
-              <Text style={styles.modalBtnText}>RESTART</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+      {paused && <PauseModal onResume={() => setPaused(false)} onRestart={restart} />}
     </View>
   );
 }
 
-// --- Sub-components ---
-function GameOverScreen({ reason, score, total, timeTaken, onRestart, levelUp, params }) {
-  const isWinner = reason === 'completed' && score >= (total * 0.6);
+// --- SUB-COMPONENTS ---
+
+function GameOverScreen({ reason, score, total, timeTaken, onRestart, onUnlock, params, intLevel }) {
+  const router = useRouter(); // Initialize properly at top
   const [best, setBest] = useState(null);
+  const [nextUnlocked, setNextUnlocked] = useState(false);
+  const isPerfect = reason === 'completed' && score === total;
 
   useEffect(() => {
-    const key = `bestTime_${params.name}_${params.difficulty}_${params.level}`;
-    AsyncStorage.getItem(key).then(value => setBest(value));
+    const checkStatus = async () => {
+      const timeVal = await AsyncStorage.getItem(`bestTime_${params.name}_${params.difficulty}_${params.level}`);
+      setBest(timeVal);
+
+      const progVal = await AsyncStorage.getItem('levelData');
+      if (progVal) {
+        const data = JSON.parse(progVal);
+        const diffIdx = params.difficulty === 'easy' ? 0 : params.difficulty === 'medium' ? 1 : 2;
+        if ((data[params.name]?.[diffIdx] || 1) > intLevel) setNextUnlocked(true);
+      }
+    };
+    checkStatus();
   }, []);
 
   return (
     <SafeAreaView style={[styles.container, styles.center]}>
-      <Text style={styles.gameOverTitle}>{isWinner ? "Level Clear!" : "Game Over"}</Text>
+      <Text style={styles.gameOverTitle}>{isPerfect ? "Perfect Score!" : "Game Over"}</Text>
       <Text style={styles.finalScore}>{score} / {total}</Text>
-      <Text style={styles.statText}>
-        Time: {timeTaken}s {best && `(Best: ${best}s)`}
-      </Text>
-      {isWinner && (
-        <TouchableOpacity
-          style={[styles.restartBtn, { backgroundColor: '#10B981', marginBottom: 15 }]}
-          onPress={levelUp}
-        >
-          <Text style={styles.restartBtnText}>Next Level</Text>
+      
+      {isPerfect && nextUnlocked && <Text style={{ color: '#10B981', marginBottom: 10 }}>Next level is already unlocked!</Text>}
+      {!isPerfect && <Text style={{ color: '#9CA3AF', marginBottom: 10 }}>Get 100% to unlock the next level.</Text>}
+
+      <Text style={styles.statText}>Time: {timeTaken}s (Best: {best || '--'}s)</Text>
+
+      {isPerfect && !nextUnlocked && (
+        <TouchableOpacity style={[styles.restartBtn, { backgroundColor: '#10B981', marginBottom: 15 }]} onPress={onUnlock}>
+          <Text style={styles.restartBtnText}>Unlock Next Level</Text>
         </TouchableOpacity>
       )}
+
       <TouchableOpacity style={styles.restartBtn} onPress={onRestart}>
         <Text style={styles.restartBtnText}>Play Again</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={{ marginTop: 20 }} onPress={() => router.back()}>
+        <Text style={{ color: '#6366F1', fontWeight: 'bold' }}>Back to Level</Text>
       </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
-function LoadingScreen() {
+function PauseModal({ onResume, onRestart }) {
   return (
-    <View style={[styles.container, styles.center]}>
-      <ActivityIndicator size="large" color="#6366F1" />
+    <View style={styles.pauseOverlay}>
+      <View style={styles.modal}>
+        <Text style={styles.modalTitle}>Paused</Text>
+        <TouchableOpacity style={styles.modalBtn} onPress={onResume}><Text style={styles.modalBtnText}>RESUME</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.modalBtn, { backgroundColor: '#6366F1' }]} onPress={onRestart}><Text style={styles.modalBtnText}>RESTART</Text></TouchableOpacity>
+      </View>
     </View>
   );
 }
 
-function ErrorScreen({ message }) {
-  return (
-    <View style={[styles.container, styles.center]}>
-      <Text style={styles.errorText}>{message}</Text>
-    </View>
-  );
-}
+function LoadingScreen() { return <View style={[styles.container, styles.center]}><ActivityIndicator size="large" color="#6366F1" /></View>; }
+function ErrorScreen({ message }) { return <View style={[styles.container, styles.center]}><Text style={styles.errorText}>{message}</Text></View>; }

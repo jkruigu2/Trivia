@@ -8,6 +8,12 @@ export const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f0f2f', // darker background to make stars pop
   },
+  retryHint: {
+  color: '#FFA500', // Orange/Gold
+  fontSize: 16,
+  marginBottom: 10,
+  textAlign: 'center',
+},
   center: {
     justifyContent: 'center',
     alignItems: 'center',

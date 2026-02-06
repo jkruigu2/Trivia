@@ -23,7 +23,6 @@ export default function LevelMap() {
   const router = useRouter();
   const params = useLocalSearchParams();
 
-  // Helper to generate the curved path between nodes
   const generatePath = () => {
     if (levels.length < 2) return "";
     let d = `M ${levels[0].x} ${levels[0].y}`;
@@ -37,22 +36,12 @@ export default function LevelMap() {
     return d;
   };
 
-  const storeData = async (value) => {
-    try {
-      const jsonValue = JSON.stringify(value);
-      await AsyncStorage.setItem('levelData', jsonValue);
-    } catch (e) {
-      console.error("Error saving data", e);
-    }
-  };
-
   const getData = async () => {
     try {
       const jsonValue = await AsyncStorage.getItem('levelData');
       let data;
       
       if (jsonValue === null) {
-        // Initializing default data
         data = {
           'counties': [1, 1, 1],
           'culture': [1, 1, 1],
@@ -61,44 +50,38 @@ export default function LevelMap() {
           'history': [1, 1, 1],
           'geography': [1, 1, 1]
         };
-        await storeData(data);
+        await AsyncStorage.setItem('levelData', JSON.stringify(data));
       } else {
         data = JSON.parse(jsonValue);
       }
 
-      // Logic for difficulty mapping
-      const diffMap = { easy: 0, medium: 1, hard: 2 };
-      const index = diffMap[params.difficulty] ?? 0;
-      
-      return data[params.name] ? data[params.name][index] : 1;
+      const diffIndex = params.difficulty === 'easy' ? 0 : params.difficulty === 'medium' ? 1 : 2;
+      return data[params.name] ? data[params.name][diffIndex] : 1;
     } catch (e) {
       return 1;
     }
   };
 
   useEffect(() => {
-    async function initMap() {
+    const fetchProgress = async () => {
       const level = await getData();
       setUnlockedLevel(level);
-    }
-    initMap();
-  }, []);
+    };
+    fetchProgress();
+  }, [params]); // Re-run if params change
 
   const handleLevelPress = (levelId) => {
     if (levelId <= unlockedLevel) {
       router.push({
         pathname: '/quiz/QuizScreen',
-        params: {
-          ...params,
-          level: levelId
-        },
+        params: { ...params, level: levelId },
       });
     } else {
-      // The Alert triggered for locked levels
+      // Logic for locked level alert
       Alert.alert(
         "Level Locked",
-        "You need to complete previous levels to unlock this stage!",
-        [{ text: "Got it", style: "cancel" }]
+        "You must pass the previous level with a perfect score to unlock this one!",
+        [{ text: "OK", style: "default" }]
       );
     }
   };
@@ -133,11 +116,7 @@ export default function LevelMap() {
         {levels.map((level) => {
           const isLocked = level.id > unlockedLevel;
           return (
-            <G 
-              key={level.id} 
-              onPress={() => handleLevelPress(level.id)}
-              opacity={isLocked ? 0.5 : 1} // Visual feedback for locked levels
-            >
+            <G key={level.id} onPress={() => handleLevelPress(level.id)}>
               <Circle cx={level.x} cy={level.y} r="28" fill="white" opacity={0.2} />
               <Circle 
                 cx={level.x} 
@@ -145,7 +124,8 @@ export default function LevelMap() {
                 r="24" 
                 fill={`url(#${level.grad})`} 
                 stroke="white" 
-                strokeWidth={isLocked ? 0 : 2} 
+                strokeWidth="2" 
+                opacity={isLocked ? 0.5 : 1}
               />
               <SvgText
                 x={level.x}
@@ -164,7 +144,7 @@ export default function LevelMap() {
 
       <View style={styles.header}>
         <View style={styles.stats}>
-          <Text style={styles.statText}>Level {unlockedLevel} Unlocked</Text>
+          <Text style={styles.statText}>Progress: Level {unlockedLevel}</Text>
         </View>
         <View style={styles.stats}>
           <Text style={styles.statText}>💰 60</Text>
@@ -175,11 +155,7 @@ export default function LevelMap() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#79CBCA',
-    justifyContent: 'center'
-  },
+  container: { flex: 1, backgroundColor: '#79CBCA', justifyContent: 'center' },
   header: {
     position: 'absolute',
     top: 50,
