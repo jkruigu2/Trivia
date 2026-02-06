@@ -17,7 +17,7 @@ export default function RootLayout() {
           options={{ title: 'Categories', headerShown: false }} // hide header on home
         />
         <Stack.Screen
-          name="quiz/Levels"
+          name="quiz/levels"
           options={{ title: 'Level', headerShown: true }} // hide header on home
         />
         <Stack.Screen
