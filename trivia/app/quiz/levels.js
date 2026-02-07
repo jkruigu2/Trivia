@@ -73,7 +73,7 @@ export default function LevelMap() {
   const handleLevelPress = (levelId) => {
     if (levelId <= unlockedLevel) {
       router.push({
-        pathname: '/quiz/QuizScreen',
+        pathname: '/quiz/App',
         params: { ...params, level: levelId },
       });
     } else {

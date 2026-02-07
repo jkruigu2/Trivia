@@ -21,7 +21,7 @@ export default function RootLayout() {
           options={{ title: 'Level', headerShown: true }} // hide header on home
         />
         <Stack.Screen
-          name="quiz/QuizScreen"
+          name="quiz/App"
           options={{ title: 'Questions', headerShown: true }} // hide header on home
         />
         {/* Add more <Stack.Screen /> later for other routes */}
