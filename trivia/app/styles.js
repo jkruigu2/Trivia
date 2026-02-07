@@ -6,7 +6,7 @@ const availableWidth = width - HORIZONTAL_PADDING * 2;
 const buttonWidth = (availableWidth - GAP) / 2;
 
 
-export const styles = StyleSheet.create({
+ export const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F172A' },
   glowOrb: { position: 'absolute', borderRadius: 999 },
   starElement: { position: 'absolute', backgroundColor: '#ffffff' },

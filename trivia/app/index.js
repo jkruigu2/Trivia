@@ -1,40 +1,68 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Subcomponents
 import { BackgroundGlow, Star } from './components/BackgroundEffects';
 import { SettingsModal } from './components/SettingsModal';
 import { CategoryCard } from './components/CategoryCard';
+
+const SOUND_KEY = 'soundStatus';
 
 export default function HomeScreen() {
   const router = useRouter();
   const [selectedDifficulty, setSelectedDifficulty] = useState('easy');
   const [isSettingsVisible, setSettingsVisible] = useState(false);
   const [isSoundOn, setIsSoundOn] = useState(true);
-  const [sound, setSound] = useState(null);
+  const soundRef = useRef(null); // Use a ref to keep track of the sound object without triggering re-renders
 
-  // Audio setup
+  // 1. Initial Load: Get saved settings and load audio
   useEffect(() => {
-    async function loadAudio() {
+    async function init() {
       try {
-        const { sound: newSound } = await Audio.Sound.createAsync(
+        // Get saved preference
+        const savedStatus = await AsyncStorage.getItem(SOUND_KEY);
+        // If null, default to true. Otherwise, parse the boolean.
+        const soundEnabled = savedStatus !== null ? JSON.parse(savedStatus) : true;
+        setIsSoundOn(soundEnabled);
+
+        // Create Sound
+        const { sound } = await Audio.Sound.createAsync(
           require('./quiz/src/background.mp3'),
-          { isLooping: true, shouldPlay: isSoundOn, volume: 0.4 }
+          { isLooping: true, shouldPlay: soundEnabled, volume: 0.4 }
         );
-        setSound(newSound);
-      } catch (e) { console.error("Audio Load Error", e); }
+        soundRef.current = sound;
+      } catch (e) {
+        console.error("Initialization Error", e);
+      }
     }
-    loadAudio();
-    return () => { if (sound) sound.unloadAsync(); };
+    init();
+
+    return () => {
+      if (soundRef.current) soundRef.current.unloadAsync();
+    };
   }, []);
 
+  // 2. Optimized Toggle Logic
   const toggleMusic = async () => {
-    if (!sound) return;
-    isSoundOn ? await sound.pauseAsync() : await sound.playAsync();
-    setIsSoundOn(!isSoundOn);
+    if (!soundRef.current) return;
+
+    const nextValue = !isSoundOn; // Determine next state immediately
+    setIsSoundOn(nextValue);
+    
+    try {
+      if (nextValue) {
+        await soundRef.current.playAsync();
+      } else {
+        await soundRef.current.pauseAsync();
+      }
+      // Save as boolean string "true" or "false"
+      await AsyncStorage.setItem(SOUND_KEY, JSON.stringify(nextValue));
+    } catch (e) {
+      console.error("Toggle Error", e);
+    }
   };
 
   const categories = [
@@ -51,7 +79,6 @@ export default function HomeScreen() {
       <BackgroundGlow />
       {Array.from({ length: 30 }).map((_, i) => <Star key={i} />)}
 
-      {/* Header */}
       <View style={styles.header}>
         <View style={{ width: 40 }} />
         <Text style={styles.title}>The Kenyan Trivia</Text>

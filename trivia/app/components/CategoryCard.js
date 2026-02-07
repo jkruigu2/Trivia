@@ -4,7 +4,7 @@ import { TouchableOpacity, Text, StyleSheet, Dimensions } from 'react-native';
 const { width } = Dimensions.get('window');
 const cardWidth = (width - 40 - 16) / 2; // (Total Width - Padding - Gap) / 2
 
-export const CategoryCard = ({ category, onPress }) => (
+ export const CategoryCard = ({ category, onPress }) => (
   <TouchableOpacity
     style={[styles.card, { backgroundColor: category.color + 'CC' }]}
     onPress={onPress}

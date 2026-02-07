@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import * as Haptics from 'expo-haptics';
 
-export const useQuizLogic = (questions, totalTime, onGameOver) => {
+ export const useQuizLogic = (questions, totalTime, onGameOver) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
