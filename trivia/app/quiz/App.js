@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, Alert } from 'react-native'; // Added Alert
 import { useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuizLogic } from './components/QuizLogic';
@@ -72,15 +72,24 @@ export default function App() {
       const currentLevel = parseInt(params.level);
       const levelIdx = currentLevel - 1;
 
-      // Ensure data structure exists
       if (!data[cat]) data[cat] = {};
       if (!data[cat][diff]) {
         data[cat][diff] = { unlocked: 1, scores: Array(9).fill(0) };
       }
 
       const currentProgress = data[cat][diff];
-      const percentage = Math.round((score / (quizData.length || 1)) * 100);
+      const totalQuestions = quizData.length || 1;
+      const percentage = Math.round((score / totalQuestions) * 100);
       const previousBest = currentProgress.scores[levelIdx] || 0;
+
+      // --- ALERT LOGIC ---
+      if (percentage === 100) {
+        Alert.alert(
+          "Perfect Score! 🌟",
+          "Unstoppable! You got every single question right.",
+          [{ text: "Continue" }]
+        );
+      }
 
       // 1. AWARD GEMS: Only if the user reaches 100% for the first time
       if (percentage === 100 && previousBest < 100) {
@@ -89,7 +98,7 @@ export default function App() {
         await AsyncStorage.setItem('total_gems', currentTotalGems.toString());
       }
 
-      // 2. UNLOCK NEXT LEVEL: If score is >= 70% and user is playing their highest level
+      // 2. UNLOCK NEXT LEVEL
       if (percentage >= 70) {
         if (currentLevel === currentProgress.unlocked && currentLevel < 9) {
           currentProgress.unlocked = currentLevel + 1;
