@@ -3,7 +3,7 @@ import { StyleSheet, View, Animated, Easing, Dimensions } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
-export const Star = () => {
+ export const Star = () => {
   const translateY = useRef(new Animated.Value(-100)).current;
   const opacity = useRef(new Animated.Value(Math.random() * 0.5 + 0.2)).current;
   const size = 1.5 + Math.random() * 3;
