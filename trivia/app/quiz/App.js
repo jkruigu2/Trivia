@@ -143,7 +143,8 @@ export default function App() {
         current={currentIndex + 1} 
         total={quizData.length} 
         timeLeft={timeLeft} 
-        lives={lives} 
+        lives={lives}
+        paused={paused}
         onPause={() => setPaused(!paused)} 
       />
       

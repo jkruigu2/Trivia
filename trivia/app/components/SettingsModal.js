@@ -56,13 +56,6 @@ export const SettingsModal = ({ isVisible, onClose, isSoundOn, onToggleMusic, on
               trackColor={{ false: '#E2E8F0', true: '#4F46E5' }} 
             />
           </View>
-
-          {/* Existing Sound Effects Toggle */}
-          <View style={styles.row}>
-            <Text style={styles.text}>Sound Effects</Text>
-            <Switch trackColor={{ false: '#E2E8F0', true: '#4F46E5' }} />
-          </View>
-
           {/* NEW: Reset Progress Option */}
           <TouchableOpacity style={[styles.row, styles.noBorder]} onPress={handleReset}>
             <View style={styles.resetContainer}>
@@ -113,6 +106,6 @@ const styles = StyleSheet.create({
   text: { color: '#334155', fontSize: 16, fontWeight: '600' },
   resetContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'right',
   }
 });
