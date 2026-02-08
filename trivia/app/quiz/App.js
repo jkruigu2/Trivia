@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuizLogic } from './components/QuizLogic';
 import { QuizHeader, OptionButton } from './components/QuizUI';
 import GameOverScreen from './screens/GameOverScreen';
@@ -8,7 +9,6 @@ import { styles } from './styles';
 
 const allData = require('./src/data.json');
 
-// Helper to shuffle options without mutating original data
 const shuffleArray = (array) => {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -21,43 +21,109 @@ const shuffleArray = (array) => {
 export default function App() {
   const params = useLocalSearchParams();
   const [gameOverReason, setGameOverReason] = useState(null);
+  const [gemsEarned, setGemsEarned] = useState(0);
 
-  // Memoized data filtering AND randomization
-  const { quizData, maxLevelAvailable, totalTime } = useMemo(() => {
-    // 1. Filter data based on category and level
+  // Memoized Filtering with Crash Protection
+  const { quizData, totalTime } = useMemo(() => {
+    const targetDiff = (params.difficulty || '').toLowerCase();
+    const targetCat = params.name;
+    const targetLevel = parseInt(params.level);
+
     const filtered = allData.filter(q => 
-      q.difficulty === params.difficulty && 
-      q.category === params.name && 
-      q.level === parseInt(params.level)
+      (q.difficulty || '').toLowerCase() === targetDiff && 
+      q.category === targetCat && 
+      q.level === targetLevel
     );
 
-    // 2. Randomize options for each question
     const randomizedQuestions = filtered.map(question => ({
       ...question,
       options: shuffleArray(question.options)
     }));
 
-    // 3. Calculate metadata
-    const max = Math.max(...allData.filter(q => q.category === params.name).map(q => q.level), 1);
-    const timePerQ = params.difficulty === "easy" ? 20 : params.difficulty === "medium" ? 15 : 10;
+    const timePerQ = targetDiff === "easy" ? 20 : targetDiff === "medium" ? 15 : 10;
     const time = randomizedQuestions.length * timePerQ;
 
-    return { quizData: randomizedQuestions, maxLevelAvailable: max, totalTime: time };
+    return { quizData: randomizedQuestions, totalTime: time };
   }, [params.level, params.name, params.difficulty]);
 
   const {
     currentIndex, score, lives, timeLeft, 
-    selectedOption, feedback, paused, 
+    selectedOption, paused, 
     setPaused, handleAnswer, resetLogic
   } = useQuizLogic(quizData, totalTime, setGameOverReason);
+
+  // Trigger save logic when game completes
+  useEffect(() => {
+    if (gameOverReason === 'completed') {
+      processLevelCompletion();
+    }
+  }, [gameOverReason]);
+
+  const processLevelCompletion = async () => {
+    try {
+      const jsonValue = await AsyncStorage.getItem('levelData');
+      const gemValue = await AsyncStorage.getItem('total_gems');
+      
+      let data = jsonValue != null ? JSON.parse(jsonValue) : {};
+      let currentTotalGems = gemValue != null ? parseInt(gemValue) : 0;
+
+      const cat = params.name;
+      const diff = params.difficulty;
+      const currentLevel = parseInt(params.level);
+      const levelIdx = currentLevel - 1;
+
+      // Ensure data structure exists
+      if (!data[cat]) data[cat] = {};
+      if (!data[cat][diff]) {
+        data[cat][diff] = { unlocked: 1, scores: Array(9).fill(0) };
+      }
+
+      const currentProgress = data[cat][diff];
+      const percentage = Math.round((score / (quizData.length || 1)) * 100);
+      const previousBest = currentProgress.scores[levelIdx] || 0;
+
+      // 1. AWARD GEMS: Only if the user reaches 100% for the first time
+      if (percentage === 100 && previousBest < 100) {
+        currentTotalGems += 5;
+        setGemsEarned(5);
+        await AsyncStorage.setItem('total_gems', currentTotalGems.toString());
+      }
+
+      // 2. UNLOCK NEXT LEVEL: If score is >= 70% and user is playing their highest level
+      if (percentage >= 70) {
+        if (currentLevel === currentProgress.unlocked && currentLevel < 9) {
+          currentProgress.unlocked = currentLevel + 1;
+        }
+      }
+
+      // 3. UPDATE HIGH SCORE
+      if (percentage > previousBest) {
+        currentProgress.scores[levelIdx] = percentage;
+      }
+
+      // 4. PERSIST ALL DATA
+      data[cat][diff] = currentProgress;
+      await AsyncStorage.setItem('levelData', JSON.stringify(data));
+
+    } catch (e) {
+      console.error("Save Progress Error:", e);
+    }
+  };
 
   if (gameOverReason) {
     return (
       <GameOverScreen 
-        reason={gameOverReason} score={score} total={quizData.length}
-        timeLeft={timeLeft} totalTime={totalTime} params={params}
-        maxLevel={maxLevelAvailable} 
-        onRestart={() => { setGameOverReason(null); resetLogic(); }}
+        reason={gameOverReason} 
+        score={score} 
+        total={quizData.length}
+        timeLeft={timeLeft} 
+        params={params}
+        gemsEarned={gemsEarned}
+        onRestart={() => { 
+          setGameOverReason(null); 
+          setGemsEarned(0);
+          resetLogic(); 
+        }}
       />
     );
   }
@@ -65,18 +131,23 @@ export default function App() {
   return (
     <View style={styles.container}>
       <QuizHeader 
-        current={currentIndex + 1} total={quizData.length} 
-        timeLeft={timeLeft} lives={lives} onPause={() => setPaused(!paused)} 
+        current={currentIndex + 1} 
+        total={quizData.length} 
+        timeLeft={timeLeft} 
+        lives={lives} 
+        onPause={() => setPaused(!paused)} 
       />
       
       <View style={styles.questionCard}>
-        <Text style={styles.questionText}>{quizData[currentIndex]?.question}</Text>
+        <Text style={styles.questionText}>
+          {quizData[currentIndex]?.question || "No Question Found"}
+        </Text>
       </View>
 
       <View style={styles.optionsContainer}>
         {quizData[currentIndex]?.options.map((opt) => (
           <OptionButton 
-            key={`${currentIndex}-${opt}`} // Combined key to force refresh on new question
+            key={`${currentIndex}-${opt}`} 
             option={opt}
             isSelected={selectedOption === opt}
             isCorrect={opt === quizData[currentIndex].correct}
