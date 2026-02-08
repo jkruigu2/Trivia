@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,63 +11,66 @@ import { CategoryCard } from './components/CategoryCard';
 
 const SOUND_KEY = 'soundStatus';
 
+// Static data outside the component to prevent re-creation on every render
+const DIFFICULTIES = [
+  { label: 'Easy', value: 'easy', color: '#4CAF50' },
+  { label: 'Medium', value: 'medium', color: '#FF9800' },
+  { label: 'Hard', value: 'hard', color: '#F44336' },
+];
+
+const CATEGORIES = [
+  { name: 'Counties', color: '#3F51B5', icon: '🇰🇪' },
+  { name: 'History', color: '#2196F3', icon: '🌅' },
+  { name: 'Culture', color: '#F44336', icon: '📜' },
+  { name: 'Geography', color: '#4CAF50', icon: '🏔️' },
+  { name: 'World', color: '#607D8B', icon: '🌍' },
+  { name: 'President', color: '#E91E63', icon: '👔' },
+];
+
 export default function HomeScreen() {
   const router = useRouter();
   const [selectedDifficulty, setSelectedDifficulty] = useState('easy');
   const [isSettingsVisible, setSettingsVisible] = useState(false);
   const [isSoundOn, setIsSoundOn] = useState(true);
-  const soundRef = useRef(null); // Use a ref to keep track of the sound object without triggering re-renders
+  const soundRef = useRef(null);
 
-<<<<<<< HEAD
-  const difficulties = [
-    { label: 'Easy', value: 'easy', color: '#4CAF50' },
-    { label: 'Medium', value: 'medium', color: '#FF9800' },
-    { label: 'Hard', value: 'hard', color: '#F44336' },
-  ];
-
-  const categories = [
-    { name: 'Counties', color: '#3F51B5', icon: '🇰🇪' },
-    { name: 'History', color: '#2196F3', icon: '🌅' },
-    { name: 'Culture', color: '#F44336', icon: '📜' },
-    { name: 'Geography', color: '#4CAF50', icon: '🏔️' },
-    { name: 'World', color: '#607D8B', icon: '🌍' },
-    { name: 'President', color: '#E91E63', icon: '👔' },
-  ];
-
-=======
-  // 1. Initial Load: Get saved settings and load audio
->>>>>>> c3205ae2f96f6b4e47890e59f3b7c81372da490b
+  // Initialize Audio and Settings
   useEffect(() => {
-    async function init() {
-      try {
-        // Get saved preference
-        const savedStatus = await AsyncStorage.getItem(SOUND_KEY);
-        // If null, default to true. Otherwise, parse the boolean.
-        const soundEnabled = savedStatus !== null ? JSON.parse(savedStatus) : true;
-        setIsSoundOn(soundEnabled);
+    let isMounted = true;
 
-        // Create Sound
+    async function initAudio() {
+      try {
+        const savedStatus = await AsyncStorage.getItem(SOUND_KEY);
+        const soundEnabled = savedStatus !== null ? JSON.parse(savedStatus) : true;
+        
+        if (isMounted) setIsSoundOn(soundEnabled);
+
         const { sound } = await Audio.Sound.createAsync(
           require('./quiz/src/background.mp3'),
           { isLooping: true, shouldPlay: soundEnabled, volume: 0.4 }
         );
+        
         soundRef.current = sound;
       } catch (e) {
-        console.error("Initialization Error", e);
+        console.error("Audio Init Error:", e);
       }
     }
-    init();
+
+    initAudio();
 
     return () => {
-      if (soundRef.current) soundRef.current.unloadAsync();
+      isMounted = false;
+      if (soundRef.current) {
+        soundRef.current.unloadAsync();
+      }
     };
   }, []);
 
-  // 2. Optimized Toggle Logic
+  // Optimized Toggle Logic
   const toggleMusic = async () => {
     if (!soundRef.current) return;
 
-    const nextValue = !isSoundOn; // Determine next state immediately
+    const nextValue = !isSoundOn;
     setIsSoundOn(nextValue);
     
     try {
@@ -76,22 +79,34 @@ export default function HomeScreen() {
       } else {
         await soundRef.current.pauseAsync();
       }
-      // Save as boolean string "true" or "false"
       await AsyncStorage.setItem(SOUND_KEY, JSON.stringify(nextValue));
     } catch (e) {
       console.error("Toggle Error", e);
     }
   };
 
+  // Navigate to levels
+  const handleCategoryPress = useCallback((categoryName) => {
+    router.push({ 
+      pathname: '/quiz/levels', 
+      params: { name: categoryName.toLowerCase(), difficulty: selectedDifficulty } 
+    });
+  }, [selectedDifficulty]);
+
   return (
     <View style={styles.container}>
       <BackgroundGlow />
-      {Array.from({ length: 20 }).map((_, i) => <Star key={i} />)}
+      {/* Optimization: Static star array to avoid re-calculating on every render */}
+      {Array.from({ length: 20 }).map((_, i) => <Star key={`star-${i}`} />)}
 
       <View style={styles.header}>
         <View style={{ width: 40 }} />
         <Text style={styles.title}>The Kenyan Trivia</Text>
-        <TouchableOpacity onPress={() => setSettingsVisible(true)} style={styles.settingsBtn}>
+        <TouchableOpacity 
+          onPress={() => setSettingsVisible(true)} 
+          style={styles.settingsBtn}
+          activeOpacity={0.7}
+        >
           <Ionicons name="settings-outline" size={26} color="#F1F5F9" />
         </TouchableOpacity>
       </View>
@@ -104,37 +119,37 @@ export default function HomeScreen() {
       />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Difficulty Selection */}
         <Text style={styles.sectionTitle}>Select Difficulty</Text>
         <View style={styles.difficultyButtonsContainer}>
-          {difficulties.map((diff) => (
-            <TouchableOpacity
-              key={diff.value}
-              style={[
-                styles.difficultyButton, 
-                selectedDifficulty === diff.value && { backgroundColor: diff.color, borderColor: diff.color }
-              ]}
-              onPress={() => setSelectedDifficulty(diff.value)}
-            >
-              <Text style={[
-                styles.difficultyButtonText, 
-                selectedDifficulty === diff.value && { color: '#ffffff' }
-              ]}>{diff.label}</Text>
-            </TouchableOpacity>
-          ))}
+          {DIFFICULTIES.map((diff) => {
+            const isActive = selectedDifficulty === diff.value;
+            return (
+              <TouchableOpacity
+                key={diff.value}
+                style={[
+                  styles.difficultyButton, 
+                  isActive && { backgroundColor: diff.color, borderColor: diff.color }
+                ]}
+                onPress={() => setSelectedDifficulty(diff.value)}
+              >
+                <Text style={[
+                  styles.difficultyButtonText, 
+                  isActive && styles.activeButtonText
+                ]}>
+                  {diff.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
-        {/* Categories Grid */}
         <Text style={styles.sectionTitle}>Choose Category</Text>
         <View style={styles.grid}>
-          {categories.map((item) => (
+          {CATEGORIES.map((item) => (
             <CategoryCard 
               key={item.name} 
               category={item} 
-              onPress={() => router.push({ 
-                pathname: '/quiz/levels', 
-                params: { name: item.name.toLowerCase(), difficulty: selectedDifficulty } 
-              })} 
+              onPress={() => handleCategoryPress(item.name)} 
             />
           ))}
         </View>
@@ -145,12 +160,36 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F172A' },
-  header: { paddingTop: 60, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+  header: { 
+    paddingTop: 60, 
+    paddingHorizontal: 24, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    marginBottom: 20 
+  },
   title: { fontSize: 22, fontWeight: '900', color: '#F1F5F9' },
-  settingsBtn: { padding: 8, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 12 },
+  settingsBtn: { 
+    padding: 8, 
+    backgroundColor: 'rgba(255,255,255,0.05)', 
+    borderRadius: 12 
+  },
   scrollContent: { paddingBottom: 40 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#CBD5E1', marginBottom: 12, paddingHorizontal: 24, marginTop: 10 },
-  difficultyButtonsContainer: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginBottom: 20, paddingHorizontal: 20 },
+  sectionTitle: { 
+    fontSize: 16, 
+    fontWeight: '700', 
+    color: '#CBD5E1', 
+    marginBottom: 12, 
+    paddingHorizontal: 24, 
+    marginTop: 10 
+  },
+  difficultyButtonsContainer: { 
+    flexDirection: 'row', 
+    justifyContent: 'center', 
+    gap: 10, 
+    marginBottom: 20, 
+    paddingHorizontal: 20 
+  },
   difficultyButton: { 
     flex: 1, 
     paddingVertical: 10, 
@@ -160,5 +199,12 @@ const styles = StyleSheet.create({
     alignItems: 'center' 
   },
   difficultyButtonText: { color: '#94A3B8', fontWeight: '600' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 16, paddingHorizontal: 10 },
+  activeButtonText: { color: '#ffffff' },
+  grid: { 
+    flexDirection: 'row', 
+    flexWrap: 'wrap', 
+    justifyContent: 'center', 
+    gap: 16, 
+    paddingHorizontal: 10 
+  },
 });
