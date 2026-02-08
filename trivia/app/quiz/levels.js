@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, Dimensions, ScrollView, SafeAreaView, Platform } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  Text,
+  Dimensions,
+  ScrollView,
+  SafeAreaView,
+  Platform,
+} from 'react-native';
 import Svg, { Path, Circle, G, Text as SvgText, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -7,24 +15,22 @@ import { Ionicons } from '@expo/vector-icons';
 
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// FIX: Use a fixed height for the map logic so the angles don't change on different phones
-const MAP_HEIGHT = 2200; 
+// Using fixed map height prevents angle distortion across devices
+const MAP_HEIGHT = 2200;
 const LEVEL_COUNT = 9;
-const PADDING_TOP = 150;
-const PADDING_BOTTOM = 150;
+const PADDING_TOP = 180;
+const PADDING_BOTTOM = 180;
 
-// FIX: X and Y are now calculated using a stable distribution
 const levels = Array.from({ length: LEVEL_COUNT }, (_, i) => {
   let xPos = width * 0.5;
-  if (i % 4 === 1) xPos = width * 0.22; // Slightly more inset for better curves
-  if (i % 4 === 3) xPos = width * 0.78;
+  if (i % 4 === 1) xPos = width * 0.24;
+  if (i % 4 === 3) xPos = width * 0.76;
 
   return {
     id: i + 1,
     x: xPos,
-    // Distribute levels evenly across the fixed MAP_HEIGHT
-    y: (MAP_HEIGHT - PADDING_BOTTOM) - (i * (MAP_HEIGHT - PADDING_TOP - PADDING_BOTTOM) / (LEVEL_COUNT - 1)),
-    grad: i % 3 === 0 ? "candyPink" : i % 3 === 1 ? "candyBlue" : "candyYellow"
+    y: PADDING_TOP + i * ((MAP_HEIGHT - PADDING_TOP - PADDING_BOTTOM) / (LEVEL_COUNT - 1)),
+    grad: i % 3 === 0 ? 'candyPink' : i % 3 === 1 ? 'candyBlue' : 'candyYellow',
   };
 });
 
@@ -36,24 +42,24 @@ export default function LevelMap() {
   const params = useLocalSearchParams();
   const { name = 'Category', difficulty = 'Easy' } = params;
 
-  useEffect(() => { 
-    loadProgress(); 
-  }, [params]);
-
-  // AUTO-FOCUS: Fixed to work with the 2200 height logic
   useEffect(() => {
-    if (progress.unlocked) {
-      const currentLevel = levels.find(l => l.id === progress.unlocked);
+    loadProgress();
+  }, [name, difficulty]);
+
+  useEffect(() => {
+    if (progress.unlocked && scrollRef.current) {
+      const currentLevel = levels.find((l) => l.id === progress.unlocked);
       if (currentLevel) {
-        // Center the level on the screen
-        const scrollToY = currentLevel.y - (SCREEN_HEIGHT / 2);
-        const timer = setTimeout(() => {
+        // Try to center the current level vertically
+        const targetY = currentLevel.y - SCREEN_HEIGHT / 2 + 80; // slight offset upward
+        const scrollToY = Math.max(0, Math.min(targetY, MAP_HEIGHT - SCREEN_HEIGHT));
+
+        setTimeout(() => {
           scrollRef.current?.scrollTo({
-            y: Math.max(0, scrollToY),
-            animated: true
+            y: scrollToY,
+            animated: true,
           });
-        }, 500);
-        return () => clearTimeout(timer);
+        }, 400);
       }
     }
   }, [progress.unlocked]);
@@ -62,15 +68,21 @@ export default function LevelMap() {
     try {
       const jsonValue = await AsyncStorage.getItem('levelData');
       let data = jsonValue != null ? JSON.parse(jsonValue) : {};
-      const categoryData = data[name]?.[difficulty] || { unlocked: 1, scores: Array(9).fill(0) };
+      const categoryData = data[name]?.[difficulty] || {
+        unlocked: 1,
+        scores: Array(9).fill(0),
+      };
+
       const gemValue = await AsyncStorage.getItem('total_gems');
-      
-      setTotalGems(gemValue != null ? parseInt(gemValue) : 0);
+      setTotalGems(gemValue != null ? parseInt(gemValue, 10) : 0);
+
       setProgress({
         unlocked: parseInt(categoryData.unlocked) || 1,
-        scores: (categoryData.scores || Array(9).fill(0)).map(s => parseInt(s))
+        scores: (categoryData.scores || Array(9).fill(0)).map((s) => parseInt(s, 10)),
       });
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error('Failed to load progress:', e);
+    }
   };
 
   const renderPathSegments = () => {
@@ -78,25 +90,43 @@ export default function LevelMap() {
       if (i === levels.length - 1) return null;
       const next = levels[i + 1];
 
-      // FIX: Use a percentage of width for curve intensity (18% of screen width)
-      // This ensures the curve "stretches" properly on wider/narrower phones
-      const curveIntensity = width * 0.18;
-      const cpX = (curr.x + next.x) / 2 + (i % 2 === 0 ? curveIntensity : -curveIntensity);
-      const cpY = (curr.y + next.y) / 2;
-      
-      const d = `M ${curr.x} ${curr.y} Q ${cpX} ${cpY}, ${next.x} ${next.y}`;
-      const isCompletedSegment = next.id <= progress.unlocked;
+      const dy = next.y - curr.y;
+      const dx = next.x - curr.x;
+
+      // Cubic Bézier control points - aligned vertically for reliable connection
+      const cp1x = curr.x + dx * 0.1;           // slight horizontal pull
+      const cp1y = curr.y + dy * 0.33;
+
+      const cp2x = next.x - dx * 0.1;
+      const cp2y = curr.y + dy * 0.67;
+
+      const d = `M ${curr.x} ${curr.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next.x} ${next.y}`;
+
+      const isCompleted = next.id <= progress.unlocked;
 
       return (
-        <Path 
-          key={`path-${i}`}
-          d={d} 
-          fill="none" 
-          stroke={isCompletedSegment ? "rgba(255, 255, 255, 0.9)" : "rgba(255, 255, 255, 0.25)"} 
-          strokeWidth={isCompletedSegment ? 10 : 6} 
-          strokeDasharray={isCompletedSegment ? "1, 15" : "10, 5"}
-          strokeLinecap="round"
-        />
+        <G key={`path-group-${i}`}>
+          {/* Subtle glow behind completed paths */}
+          {isCompleted && (
+            <Path
+              d={d}
+              fill="none"
+              stroke="rgba(255, 240, 180, 0.28)"
+              strokeWidth={22}
+              strokeLinecap="round"
+            />
+          )}
+
+          {/* Main path */}
+          <Path
+            d={d}
+            fill="none"
+            stroke={isCompleted ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.30)'}
+            strokeWidth={isCompleted ? 12 : 7}
+            strokeDasharray={isCompleted ? '2 14' : '10 6'}
+            strokeLinecap="round"
+          />
+        </G>
       );
     });
   };
@@ -116,57 +146,119 @@ export default function LevelMap() {
         </Svg>
       </View>
 
-      <ScrollView 
-        ref={scrollRef} 
-        showsVerticalScrollIndicator={false} 
-        contentContainerStyle={{ height: MAP_HEIGHT }} 
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ height: MAP_HEIGHT, paddingBottom: 80 }}
         bounces={true}
       >
         <Svg height={MAP_HEIGHT} width={width}>
           <Defs>
-            <LinearGradient id="candyPink" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#ff9a9e" /><Stop offset="100%" stopColor="#fecfef" /></LinearGradient>
-            <LinearGradient id="candyBlue" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#a1c4fd" /><Stop offset="100%" stopColor="#c2e9fb" /></LinearGradient>
-            <LinearGradient id="candyYellow" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#f6d365" /><Stop offset="100%" stopColor="#fda085" /></LinearGradient>
+            <LinearGradient id="candyPink" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor="#ff9a9e" />
+              <Stop offset="100%" stopColor="#fecfef" />
+            </LinearGradient>
+            <LinearGradient id="candyBlue" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor="#a1c4fd" />
+              <Stop offset="100%" stopColor="#c2e9fb" />
+            </LinearGradient>
+            <LinearGradient id="candyYellow" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor="#f6d365" />
+              <Stop offset="100%" stopColor="#fda085" />
+            </LinearGradient>
             <LinearGradient id="unlockedGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0%" stopColor="#FFF200" /><Stop offset="100%" stopColor="#FF9000" />
+              <Stop offset="0%" stopColor="#FFF200" />
+              <Stop offset="100%" stopColor="#FF9000" />
             </LinearGradient>
           </Defs>
-          
-          {/* Paths rendered first (behind levels) */}
+
+          {/* Paths first (behind circles) */}
           {renderPathSegments()}
 
+          {/* Level nodes */}
           {levels.map((level, index) => {
             const isLocked = level.id > progress.unlocked;
             const isCurrent = level.id === progress.unlocked;
             const bestScore = progress.scores[index] || 0;
 
             return (
-              <G key={level.id} onPress={() => !isLocked && router.push({ pathname: '/quiz/App', params: { ...params, level: level.id } })}>
-                {/* Visual Glow for current level */}
+              <G
+                key={level.id}
+                onPress={() => {
+                  if (!isLocked) {
+                    router.push({
+                      pathname: '/quiz/App',
+                      params: { ...params, level: level.id },
+                    });
+                  }
+                }}
+              >
+                {/* Glow for current level */}
                 {isCurrent && (
-                  <Circle cx={level.x} cy={level.y} r="38" fill="rgba(255, 255, 255, 0.3)" />
+                  <Circle
+                    cx={level.x}
+                    cy={level.y}
+                    r={44}
+                    fill="rgba(255, 255, 255, 0.35)"
+                  />
                 )}
-                
-                {/* Level Button Shadow */}
-                <Circle cx={level.x + 2} cy={level.y + 4} r="28" fill="rgba(0,0,0,0.15)" />
-                
-                {/* Main Level Circle - FIXED: Using solid fills to mask the path line */}
-                <Circle 
-                  cx={level.x} cy={level.y} r="28" 
-                  fill={isLocked ? "#b2bec3" : (isCurrent ? "url(#unlockedGrad)" : `url(#${level.grad})`)} 
-                  stroke="white" 
-                  strokeWidth={isCurrent ? 6 : 4} 
+
+                {/* Shadow */}
+                <Circle
+                  cx={level.x + 2.5}
+                  cy={level.y + 5}
+                  r={30}
+                  fill="rgba(0,0,0,0.2)"
                 />
-                
-                <SvgText x={level.x} y={level.y + 7} fill={isLocked ? "white" : (isCurrent ? "#6B4300" : "#57606f")} fontSize="18" fontWeight="900" textAnchor="middle">
-                  {isLocked ? "🔒" : level.id}
+
+                {/* Main circle */}
+                <Circle
+                  cx={level.x}
+                  cy={level.y}
+                  r={30}
+                  fill={
+                    isLocked
+                      ? '#a0aec0'
+                      : isCurrent
+                      ? 'url(#unlockedGrad)'
+                      : `url(#${level.grad})`
+                  }
+                  stroke="white"
+                  strokeWidth={isCurrent ? 7 : 4.5}
+                />
+
+                <SvgText
+                  x={level.x}
+                  y={level.y + 8}
+                  fill={isLocked ? 'white' : isCurrent ? '#5c3a00' : '#4a5568'}
+                  fontSize="22"
+                  fontWeight="bold"
+                  textAnchor="middle"
+                >
+                  {isLocked ? '🔒' : level.id}
                 </SvgText>
-                
-                {/* Score Badge */}
+
+                {/* Score badge */}
                 {!isLocked && bestScore > 0 && (
                   <G>
-                    <Circle cx={level.x + 22} cy={level.y - 22} r="13" fill="#ff4757" stroke="white" strokeWidth="2" />
-                    <SvgText x={level.x + 22} y={level.y - 18} fill="white" fontSize="9" fontWeight="bold" textAnchor="middle">{bestScore}%</SvgText>
+                    <Circle
+                      cx={level.x + 24}
+                      cy={level.y - 24}
+                      r={15}
+                      fill="#ff4757"
+                      stroke="white"
+                      strokeWidth={2.5}
+                    />
+                    <SvgText
+                      x={level.x + 24}
+                      y={level.y - 19}
+                      fill="white"
+                      fontSize="11"
+                      fontWeight="bold"
+                      textAnchor="middle"
+                    >
+                      {bestScore}%
+                    </SvgText>
                   </G>
                 )}
               </G>
@@ -175,18 +267,20 @@ export default function LevelMap() {
         </Svg>
       </ScrollView>
 
-      {/* Header UI */}
+      {/* Header */}
       <SafeAreaView style={styles.headerContainer} pointerEvents="box-none">
         <View style={styles.glassHeader}>
           <View style={styles.headerLeft}>
-            <Text style={styles.categoryText} numberOfLines={1}>{name.toUpperCase()}</Text>
+            <Text style={styles.categoryText} numberOfLines={1}>
+              {name.toUpperCase()}
+            </Text>
             <View style={styles.headerDivider} />
             <Text style={styles.difficultyText}>{difficulty}</Text>
           </View>
-          
+
           <View style={styles.gemBadge}>
             <Text style={styles.gemText}>{totalGems}</Text>
-            <Ionicons name="diamond" size={18} color="#00E5FF" />
+            <Ionicons name="diamond" size={20} color="#00E5FF" />
           </View>
         </View>
       </SafeAreaView>
@@ -195,13 +289,71 @@ export default function LevelMap() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#4facfe' },
-  headerContainer: { position: 'absolute', top: Platform.OS === 'ios' ? 0 : 30, left: 0, right: 0, paddingHorizontal: 15, zIndex: 100 },
-  glassHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(255, 255, 255, 0.95)', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 30, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.5)', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 10, elevation: 8, marginTop: 10 },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  categoryText: { color: '#2f3542', fontSize: 14, fontWeight: '900', letterSpacing: 0.5 },
-  headerDivider: { width: 1, height: 14, backgroundColor: 'rgba(0,0,0,0.1)', marginHorizontal: 10 },
-  difficultyText: { color: '#747d8c', fontSize: 12, fontWeight: '700' },
-  gemBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0, 229, 255, 0.1)', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5, borderColor: 'rgba(0, 229, 255, 0.4)' },
-  gemText: { color: '#00BCD4', fontSize: 16, fontWeight: '900', marginRight: 6 }
+  container: {
+    flex: 1,
+    backgroundColor: '#4facfe',
+  },
+  headerContainer: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 0 : 30,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    zIndex: 100,
+  },
+  glassHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 10,
+    marginTop: 12,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  categoryText: {
+    color: '#1a202c',
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  headerDivider: {
+    width: 1.5,
+    height: 16,
+    backgroundColor: 'rgba(0,0,0,0.12)',
+    marginHorizontal: 12,
+  },
+  difficultyText: {
+    color: '#718096',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  gemBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 229, 255, 0.12)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: 'rgba(0, 229, 255, 0.45)',
+  },
+  gemText: {
+    color: '#00BCD4',
+    fontSize: 17,
+    fontWeight: '900',
+    marginRight: 6,
+  },
 });
