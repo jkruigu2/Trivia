@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, Alert } from 'react-native'; // Added Alert
+import { View, Text,ScrollView, Alert } from 'react-native'; // Added Alert
 import { useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuizLogic } from './components/QuizLogic';
@@ -147,7 +147,7 @@ export default function App() {
         paused={paused}
         onPause={() => setPaused(!paused)} 
       />
-      
+      <ScrollView>
       <View style={styles.questionCard}>
         <Text style={styles.questionText}>
           {quizData[currentIndex]?.question || "No Question Found"}
@@ -166,6 +166,7 @@ export default function App() {
           />
         ))}
       </View>
+      </ScrollView>
     </View>
   );
 }

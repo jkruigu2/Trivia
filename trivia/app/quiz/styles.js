@@ -7,6 +7,7 @@ export const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#ffffff', // Brighter, light-grey/blue background
+    overflow:'scroll'
   },
   retryHint: {
     color: '#D97706', // Deeper orange for better visibility on light bg
@@ -24,9 +25,9 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    padding: 10,
     backgroundColor: '#4F46E5', // Bright Indigo
-    paddingTop: 50,
+    paddingTop: 20,
     borderBottomLeftRadius: 20,
     color: '#FFFFFF',
     fontSize: 16,
@@ -50,7 +51,7 @@ export const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 20,
-    paddingTop: 50,
+    paddingTop: 10,
     backgroundColor: 'transparent', 
   },
   timer: {
@@ -74,10 +75,10 @@ export const styles = StyleSheet.create({
     fontSize: 18,
   },
   progressContainer: {
-    height: 8,
+    height: 5,
     backgroundColor: '#E2E8F0',
-    marginHorizontal: 20,
-    marginTop: 15,
+    marginHorizontal: 10,
+    marginTop: 10,
     borderRadius: 4,
     overflow: 'hidden',
   },
@@ -87,8 +88,8 @@ export const styles = StyleSheet.create({
   },
   questionCard: {
     backgroundColor: '#FFFFFF',
-    margin: 20,
-    padding: 30,
+    margin: 10,
+    padding: 10,
     borderRadius: 24,
     // Stronger shadows for a "bright" layered effect
     elevation: 8,
@@ -105,15 +106,15 @@ export const styles = StyleSheet.create({
     lineHeight: 28,
   },
   optionsContainer: {
-    paddingHorizontal: 20,
-    marginTop: 10,
+    paddingHorizontal: 10,
+    marginTop: 5,
   },
   option: {
     backgroundColor: '#FFFFFF',
     borderWidth: 2,
     borderColor: '#E2E8F0',
     borderRadius: 16,
-    padding: 20,
+    padding: 15,
     marginVertical: 8,
   },
   optionCorrect: {

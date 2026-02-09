@@ -15,6 +15,9 @@ export const QuizHeader = ({ current, total, timeLeft, lives, paused, onPause })
         <View style={styles.percentageBadge}>
           <Text style={styles.headerLeft}>{Math.round(progressPercentage)}%</Text>
         </View>
+        <TouchableOpacity style={styles.pauseBtnSmall}>
+          <Text style={styles.pauseText}>{'❓'}</Text>
+        </TouchableOpacity>
         
         <TouchableOpacity onPress={onPause} style={styles.pauseBtnSmall}>
           <Text style={styles.pauseText}>{paused ? '▶️' : '⏸️'}</Text>
@@ -30,7 +33,7 @@ export const QuizHeader = ({ current, total, timeLeft, lives, paused, onPause })
           </Text>
         </View> 
         <Text style={styles.livesText}>
-  {'❤️'.repeat(Math.max(0, lives)) + '💔'.repeat(Math.max(0, 3 - lives))}
+  {'❤️'.repeat(Math.max(0, lives)) }{'💔'.repeat(Math.max(0, 3 - lives))}
 </Text>
       </View>
 
