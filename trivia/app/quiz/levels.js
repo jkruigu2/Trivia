@@ -8,6 +8,8 @@ import {
   SafeAreaView,
   Platform,
   Alert,
+  Animated,
+  Easing,
 } from 'react-native';
 import Svg, { Path, Circle, G, Text as SvgText, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -17,22 +19,25 @@ import * as Haptics from 'expo-haptics';
 
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const MAP_HEIGHT = 2200;
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+const AnimatedRect = Animated.createAnimatedComponent(Rect);
+
+const MAP_HEIGHT = 2800;
 const LEVEL_COUNT = 9;
 const UNLOCK_COST = 7;
-const PADDING_TOP = 180;
-const PADDING_BOTTOM = 180;
+const PADDING_TOP = 200;
+const PADDING_BOTTOM = 200;
 
 const levels = Array.from({ length: LEVEL_COUNT }, (_, i) => {
   let xPos = width * 0.5;
-  if (i % 4 === 1) xPos = width * 0.24;
-  if (i % 4 === 3) xPos = width * 0.76;
+  if (i % 4 === 1) xPos = width * 0.22;
+  if (i % 4 === 3) xPos = width * 0.78;
 
   return {
     id: i + 1,
     x: xPos,
     y: PADDING_TOP + i * ((MAP_HEIGHT - PADDING_TOP - PADDING_BOTTOM) / (LEVEL_COUNT - 1)),
-    grad: i % 3 === 0 ? 'candyPink' : i % 3 === 1 ? 'candyBlue' : 'candyYellow',
+    grad: i < 3 ? 'candyPink' : i < 6 ? 'candyBlue' : 'candyYellow',
   };
 });
 
@@ -44,101 +49,63 @@ export default function LevelMap() {
   const scrollRef = useRef(null);
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { name = 'Category', difficulty = 'Easy' } = params;
+  const { name = 'Adventure', difficulty = 'Easy' } = params;
+
+  // 1. ANIMATION VALUES
+  const scrollY = useRef(new Animated.Value(0)).current; // Tracks scroll position
+  const dashOffset = useRef(new Animated.Value(0)).current; // Tracks path dash
 
   useEffect(() => {
     loadProgress();
+    // Path Dash Animation
+    Animated.loop(
+      Animated.timing(dashOffset, {
+        toValue: 40,
+        duration: 2000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    ).start();
   }, [name, difficulty]);
 
-  useEffect(() => {
-    if (progress.unlocked && scrollRef.current) {
-      const currentLevel = levels.find((l) => l.id === progress.unlocked);
-      if (currentLevel) {
-        const targetY = currentLevel.y - SCREEN_HEIGHT / 2 + 80;
-        const scrollToY = Math.max(0, Math.min(targetY, MAP_HEIGHT - SCREEN_HEIGHT));
-        setTimeout(() => {
-          scrollRef.current?.scrollTo({ y: scrollToY, animated: true });
-        }, 400);
-      }
-    }
-  }, [progress.unlocked]);
+  // 2. BACKGROUND COLOR INTERPOLATION
+  // This maps the scroll Y position to specific biome colors
+  const backgroundColor = scrollY.interpolate({
+    inputRange: [0, MAP_HEIGHT * 0.3, MAP_HEIGHT * 0.6, MAP_HEIGHT],
+    outputRange: ['#4facfe', '#00f2fe', '#f093fb', '#243949'], // Sky -> Forest -> Cave
+  });
 
   const loadProgress = async () => {
     try {
       const jsonValue = await AsyncStorage.getItem('levelData');
       let data = jsonValue != null ? JSON.parse(jsonValue) : {};
       const categoryData = data[name]?.[difficulty] || { unlocked: 1, scores: Array(9).fill(0) };
-      
       const gemValue = await AsyncStorage.getItem('total_gems');
-      const gems = gemValue != null ? parseInt(gemValue, 10) : 0;
-      setTotalGems(gems);
-
+      setTotalGems(gemValue != null ? parseInt(gemValue, 10) : 0);
       setProgress({
         unlocked: parseInt(categoryData.unlocked) || 1,
         scores: (categoryData.scores || Array(9).fill(0)).map((s) => parseInt(s, 10)),
       });
-    } catch (e) {
-      console.error('Failed to load progress:', e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const handleUnlockLevel = (levelId) => {
-    // Only allow unlocking the very next level
-    if (levelId !== progress.unlocked + 1) {
-      Alert.alert("Sequence Locked", "You must unlock levels in order!");
-      return;
-    }
-
+    if (levelId !== progress.unlocked + 1) return;
     if (totalGems < UNLOCK_COST) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert("Not Enough Gems", `You need ${UNLOCK_COST} gems to skip this level.`);
+      Alert.alert("Locked", `You need ${UNLOCK_COST} gems.`);
       return;
     }
-
-    Alert.alert(
-      "Unlock Level?",
-      `Spend ${UNLOCK_COST} gems to unlock Level ${levelId}?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Unlock", 
-          onPress: async () => {
-            try {
-              const newGemCount = totalGems - UNLOCK_COST;
-              
-              // Update Gems
-              await AsyncStorage.setItem('total_gems', newGemCount.toString());
-              setTotalGems(newGemCount);
-
-              // Update Level Progress
-              const jsonValue = await AsyncStorage.getItem('levelData');
-              let data = jsonValue != null ? JSON.parse(jsonValue) : {};
-              if (!data[name]) data[name] = {};
-              data[name][difficulty] = {
-                ...progress,
-                unlocked: levelId
-              };
-              
-              await AsyncStorage.setItem('levelData', JSON.stringify(data));
-              setProgress(prev => ({ ...prev, unlocked: levelId }));
-              
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            } catch (e) {
-              console.error("Failed to unlock level", e);
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const handlePressIn = (id, isLocked) => {
-    setPressedId(id);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
-
-  const handlePressOut = () => {
-    setPressedId(null);
+    Alert.alert("Unlock?", `Spend ${UNLOCK_COST} gems?`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Unlock", onPress: async () => {
+          const newGems = totalGems - UNLOCK_COST;
+          await AsyncStorage.setItem('total_gems', newGems.toString());
+          setTotalGems(newGems);
+          setProgress(p => ({ ...p, unlocked: levelId }));
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }}
+    ]);
   };
 
   const renderPathSegments = () => {
@@ -147,24 +114,19 @@ export default function LevelMap() {
       const next = levels[i + 1];
       const dy = next.y - curr.y;
       const dx = next.x - curr.x;
-      const cp1x = curr.x + dx * 0.1;
-      const cp1y = curr.y + dy * 0.33;
-      const cp2x = next.x - dx * 0.1;
-      const cp2y = curr.y + dy * 0.67;
-      const d = `M ${curr.x} ${curr.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next.x} ${next.y}`;
-      const isCompleted = next.id <= progress.unlocked;
+      const d = `M ${curr.x} ${curr.y} C ${curr.x + dx * 0.1} ${curr.y + dy * 0.3}, ${next.x - dx * 0.1} ${curr.y + dy * 0.7}, ${next.x} ${next.y}`;
+      const isUnlocked = next.id <= progress.unlocked;
 
       return (
-        <G key={`path-group-${i}`}>
-          {isCompleted && (
-            <Path d={d} fill="none" stroke="rgba(255, 240, 180, 0.28)" strokeWidth={22} strokeLinecap="round" />
-          )}
-          <Path
+        <G key={`path-${i}`}>
+          <Path d={d} fill="none" stroke="rgba(0,0,0,0.05)" strokeWidth={14} strokeLinecap="round" />
+          <AnimatedPath
             d={d}
             fill="none"
-            stroke={isCompleted ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.30)'}
-            strokeWidth={isCompleted ? 12 : 7}
-            strokeDasharray={isCompleted ? '2 14' : '10 6'}
+            stroke={isUnlocked ? 'white' : 'rgba(255,255,255,0.2)'}
+            strokeWidth={isUnlocked ? 8 : 5}
+            strokeDasharray={[15, 20]}
+            strokeDashoffset={dashOffset}
             strokeLinecap="round"
           />
         </G>
@@ -173,24 +135,26 @@ export default function LevelMap() {
   };
 
   return (
-    <View style={styles.container}>
+    <Animated.View style={[styles.container, { backgroundColor }]}>
+      {/* 3. DYNAMIC BACKGROUND PARTICLES */}
       <View style={StyleSheet.absoluteFill}>
         <Svg height="100%" width="100%">
-          <Defs>
-            <LinearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0%" stopColor="#4facfe" />
-              <Stop offset="100%" stopColor="#00f2fe" />
-            </LinearGradient>
-          </Defs>
-          <Rect width="100%" height="100%" fill="url(#bgGrad)" />
+          <Circle cx="15%" cy="12%" r="40" fill="white" opacity="0.1" />
+          <Circle cx="85%" cy="40%" r="80" fill="white" opacity="0.05" />
+          <Circle cx="20%" cy="65%" r="60" fill="white" opacity="0.08" />
+          <Circle cx="75%" cy="85%" r="100" fill="white" opacity="0.04" />
         </Svg>
       </View>
 
-      <ScrollView
+      <Animated.ScrollView
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ height: MAP_HEIGHT, paddingBottom: 80 }}
-        bounces={true}
+        contentContainerStyle={{ height: MAP_HEIGHT }}
+        scrollEventThrottle={16} // High frequency for smooth color transition
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false } // Color interpolation requires false
+        )}
       >
         <Svg height={MAP_HEIGHT} width={width}>
           <Defs>
@@ -202,98 +166,63 @@ export default function LevelMap() {
 
           {renderPathSegments()}
 
-          {levels.map((level, index) => {
+          {levels.map((level) => {
             const isLocked = level.id > progress.unlocked;
-            const isNextToUnlock = level.id === progress.unlocked + 1;
+            const isNext = level.id === progress.unlocked + 1;
             const isCurrent = level.id === progress.unlocked;
             const isPressed = pressedId === level.id;
-            const bestScore = progress.scores[index] || 0;
 
             return (
-              <G
-                key={level.id}
-                onPressIn={() => handlePressIn(level.id, isLocked)}
-                onPressOut={handlePressOut}
-                onPress={() => {
-                  if (!isLocked) {
-                    router.push({
-                      pathname: '/quiz/App',
-                      params: { ...params, level: level.id },
-                    });
-                  } else if (isNextToUnlock) {
-                    handleUnlockLevel(level.id);
-                  } else {
-                    Alert.alert("Locked", "Complete previous levels first!");
-                  }
-                }}
-                delayPressIn={0}
+              <G key={level.id}
+                onPressIn={() => { setPressedId(level.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                onPressOut={() => setPressedId(null)}
+                onPress={() => !isLocked ? router.push({ pathname: '/quiz/App', params: { ...params, level: level.id } }) : isNext ? handleUnlockLevel(level.id) : null}
               >
                 <Circle cx={level.x} cy={level.y} r={50} fill="transparent" />
-
-                <G originX={level.x} originY={level.y} scale={isPressed ? 0.9 : 1} opacity={isPressed ? 0.9 : 1}>
-                  {isCurrent && <Circle cx={level.x} cy={level.y} r={44} fill="rgba(255, 255, 255, 0.4)" />}
-                  <Circle cx={level.x + 2} cy={level.y + 4} r={30} fill="rgba(0,0,0,0.15)" />
-                  <Circle
-                    cx={level.x}
-                    cy={level.y}
-                    r={30}
-                    fill={isLocked ? (isNextToUnlock ? '#cbd5e0' : '#a0aec0') : isCurrent ? 'url(#unlockedGrad)' : `url(#${level.grad})`}
-                    stroke="white"
-                    strokeWidth={isCurrent ? 7 : 4.5}
-                  />
-
-                  <SvgText
-                    x={level.x}
-                    y={level.y + 8}
-                    fill={isLocked ? 'white' : isCurrent ? '#5c3a00' : '#4a5568'}
-                    fontSize="22"
-                    fontWeight="bold"
-                    textAnchor="middle"
-                    pointerEvents="none"
-                  >
-                    {isLocked ? (isNextToUnlock ? '💎' : '🔒') : level.id}
+                <G transform={isPressed ? `translate(${level.x}, ${level.y}) scale(0.9) translate(${-level.x}, ${-level.y})` : ''}>
+                  {isCurrent && <Circle cx={level.x} cy={level.y} r={44} fill="white" opacity="0.3" />}
+                  <Circle cx={level.x} cy={level.y} r={30} fill={isLocked ? (isNext ? '#cbd5e0' : '#718096') : isCurrent ? 'url(#unlockedGrad)' : `url(#${level.grad})`} stroke="white" strokeWidth={isCurrent ? 6 : 4} />
+                  <SvgText x={level.x} y={level.y + 8} fill={isLocked ? '#edf2f7' : '#2d3748'} fontSize="20" fontWeight="bold" textAnchor="middle">
+                    {isLocked ? (isNext ? '💎' : '🔒') : level.id}
                   </SvgText>
-
-                  {!isLocked && bestScore > 0 && (
-                    <G pointerEvents="none">
-                      <Circle cx={level.x + 24} cy={level.y - 24} r={15} fill="#ff4757" stroke="white" strokeWidth={2.5} />
-                      <SvgText x={level.x + 24} y={level.y - 19} fill="white" fontSize="11" fontWeight="bold" textAnchor="middle">
-                        {bestScore}%
-                      </SvgText>
-                    </G>
-                  )}
                 </G>
               </G>
             );
           })}
         </Svg>
-      </ScrollView>
+      </Animated.ScrollView>
 
+      {/* Glass Header */}
       <SafeAreaView style={styles.headerContainer} pointerEvents="box-none">
         <View style={styles.glassHeader}>
           <View style={styles.headerLeft}>
-            <Text style={styles.categoryText} numberOfLines={1}>{name.toUpperCase()}</Text>
+            <Text style={styles.categoryText}>{name.toUpperCase()}</Text>
             <View style={styles.headerDivider} />
             <Text style={styles.difficultyText}>{difficulty}</Text>
           </View>
           <View style={styles.gemBadge}>
             <Text style={styles.gemText}>{totalGems}</Text>
-            <Ionicons name="diamond" size={20} color="#00E5FF" />
+            <Ionicons name="diamond" size={18} color="#00E5FF" />
           </View>
         </View>
       </SafeAreaView>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#4facfe' },
+  container: { flex: 1 }, // Background color is controlled by Animated.View
   headerContainer: { position: 'absolute', top: Platform.OS === 'ios' ? 0 : 30, left: 0, right: 0, paddingHorizontal: 16, zIndex: 100 },
-  glassHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(255, 255, 255, 0.96)', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 32, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.6)', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 10, elevation: 8, marginTop: 12 },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  categoryText: { color: '#1a202c', fontSize: 15, fontWeight: '900', letterSpacing: 0.4 },
-  headerDivider: { width: 1.5, height: 16, backgroundColor: 'rgba(0,0,0,0.12)', marginHorizontal: 12 },
-  difficultyText: { color: '#718096', fontSize: 13, fontWeight: '700' },
-  gemBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0, 229, 255, 0.1)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 24, borderWidth: 1.5, borderColor: 'rgba(0, 229, 255, 0.4)' },
-  gemText: { color: '#00BCD4', fontSize: 17, fontWeight: '900', marginRight: 6 },
+  glassHeader: { 
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', 
+    backgroundColor: 'rgba(255, 255, 255, 0.95)', paddingVertical: 10, paddingHorizontal: 18, 
+    borderRadius: 30, borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)',
+    shadowOpacity: 0.15, shadowRadius: 10, elevation: 6 
+  },
+  headerLeft: { flexDirection: 'row', alignItems: 'center' },
+  categoryText: { fontSize: 13, fontWeight: '900', color: '#1a202c' },
+  headerDivider: { width: 1.5, height: 16, backgroundColor: '#cbd5e0', marginHorizontal: 12 },
+  difficultyText: { fontSize: 12, color: '#718096', fontWeight: 'bold' },
+  gemBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0, 229, 255, 0.12)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  gemText: { color: '#00BCD4', fontSize: 16, fontWeight: 'bold', marginRight: 4 },
 });

@@ -107,7 +107,7 @@ export default function HomeScreen() {
           style={styles.settingsBtn}
           activeOpacity={0.7}
         >
-          <Ionicons name="settings-outline" size={26} color="#F1F5F9" />
+          <Ionicons name="settings-outline" size={26} color="#9129d6" />
         </TouchableOpacity>
       </View>
 
@@ -119,7 +119,6 @@ export default function HomeScreen() {
       />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionTitle}>Select Difficulty</Text>
         <View style={styles.difficultyButtonsContainer}>
           {DIFFICULTIES.map((diff) => {
             const isActive = selectedDifficulty === diff.value;
@@ -164,21 +163,21 @@ const styles = StyleSheet.create({
     paddingTop: 60, 
     paddingHorizontal: 24, 
     flexDirection: 'row', 
-    alignItems: 'center', 
+    alignItems: 'centre', 
     justifyContent: 'space-between', 
     marginBottom: 20 
   },
-  title: { fontSize: 22, fontWeight: '900', color: '#F1F5F9' },
+  title: { fontFamily:'Pacifico',fontSize: 22, fontWeight: '900', color: '#9129d6' },
   settingsBtn: { 
     padding: 8, 
-    backgroundColor: 'rgba(255,255,255,0.05)', 
+    backgroundColor: 'rgba(200,105,165,0.05)', 
     borderRadius: 12 
   },
   scrollContent: { paddingBottom: 40 },
   sectionTitle: { 
     fontSize: 16, 
     fontWeight: '700', 
-    color: '#CBD5E1', 
+    color: '#9129d6', 
     marginBottom: 12, 
     paddingHorizontal: 24, 
     marginTop: 10 
@@ -195,11 +194,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10, 
     borderRadius: 10, 
     borderWidth: 1, 
-    borderColor: '#334155', 
+    borderColor: '#ffffff', 
     alignItems: 'center' 
   },
   difficultyButtonText: { color: '#94A3B8', fontWeight: '600' },
-  activeButtonText: { color: '#ffffff' },
+  activeButtonText: { color: '#9129d6' },
   grid: { 
     flexDirection: 'row', 
     flexWrap: 'wrap', 

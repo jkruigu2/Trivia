@@ -10,7 +10,7 @@ const cardWidth = (width - 40 - 16) / 2; // (Total Width - Padding - Gap) / 2
     onPress={onPress}
   >
     <Text style={styles.icon}>{category.icon}</Text>
-    <Text style={styles.name}>{category.name}</Text>
+    <Text style={styles.name}>{category.name.toUpperCase()}</Text>
   </TouchableOpacity>
 );
 

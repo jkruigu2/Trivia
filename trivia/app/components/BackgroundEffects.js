@@ -1,38 +1,91 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, memo } from 'react';
 import { StyleSheet, View, Animated, Easing, Dimensions } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
- export const Star = () => {
-  const translateY = useRef(new Animated.Value(-100)).current;
-  const opacity = useRef(new Animated.Value(Math.random() * 0.5 + 0.2)).current;
-  const size = 1.5 + Math.random() * 3;
-  const left = Math.random() * width;
+// Memoizing prevents unnecessary re-renders when parent state changes
+export const Star = memo(() => {
+  const translateY = useRef(new Animated.Value(-20)).current;
+  
+  // Use useMemo or constants outside the render for static random values
+  const config = useRef({
+    size: 1.5 + Math.random() * 3,
+    left: Math.random() * width,
+    duration: 15000 + Math.random() * 20000,
+    opacity: Math.random() * 0.6 + 0.2,
+  }).current;
 
   useEffect(() => {
-    const fall = () => {
-      translateY.setValue(-100);
+    const startAnimation = () => {
+      translateY.setValue(-20);
       Animated.timing(translateY, {
-        toValue: height + 100,
-        duration: 14000 + Math.random() * 22000,
+        toValue: height + 20,
+        duration: config.duration,
         easing: Easing.linear,
-        useNativeDriver: true,
-      }).start(() => fall());
+        useNativeDriver: true, // Crucial for smooth performance
+      }).start(() => startAnimation());
     };
-    fall();
-  }, [translateY]);
+    
+    startAnimation();
+  }, [translateY, config.duration]);
 
-  return <Animated.View style={[styles.star, { left, width: size, height: size, borderRadius: size / 2, transform: [{ translateY }], opacity }]} />;
-};
+  return (
+    <Animated.View 
+      style={[
+        styles.star, 
+        { 
+          left: config.left, 
+          width: config.size, 
+          height: config.size, 
+          borderRadius: config.size / 2, 
+          opacity: config.opacity,
+          transform: [{ translateY }] 
+        }
+      ]} 
+    />
+  );
+});
 
 export const BackgroundGlow = () => (
-  <View style={StyleSheet.absoluteFill}>
-    <View style={[styles.glowOrb, { top: -height * 0.1, left: -width * 0.2, backgroundColor: '#4F46E5', width: width * 1.2, height: width * 1.2, opacity: 0.15 }]} />
-    <View style={[styles.glowOrb, { bottom: height * 0.1, right: -width * 0.3, backgroundColor: '#E91E63', width: width, height: width, opacity: 0.1 }]} />
+  <View style={[StyleSheet.absoluteFill, styles.pinkBackground]}>
+    {/* Top-left soft pink glow */}
+    <View style={[styles.glowOrb, styles.topGlow]} />
+    {/* Bottom-right deeper pink/magenta glow */}
+    <View style={[styles.glowOrb, styles.bottomGlow]} />
   </View>
 );
 
 const styles = StyleSheet.create({
-  glowOrb: { position: 'absolute', borderRadius: 999 },
-  star: { position: 'absolute', backgroundColor: '#ffffff' },
+  pinkBackground: {
+    backgroundColor: '#FBDFE9', // Soft pastel pink base
+  },
+  glowOrb: { 
+    position: 'absolute', 
+    borderRadius: 999 
+  },
+  topGlow: {
+    top: -height * 0.2,
+    left: -width * 0.2,
+    backgroundColor: '#FFB6C1', // Light Pink
+    width: width * 1.5,
+    height: width * 1.5,
+    opacity: 0.4,
+  },
+  bottomGlow: {
+    bottom: -height * 0.1,
+    right: -width * 0.3,
+    backgroundColor: '#F06292', // Deeper Pink
+    width: width * 1.2,
+    height: width * 1.2,
+    opacity: 0.3,
+  },
+  star: { 
+    position: 'absolute', 
+    backgroundColor: '#FFFFFF',
+    // Slight shadow makes stars pop on pink background
+    shadowColor: "#FFF",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 2,
+  },
 });
