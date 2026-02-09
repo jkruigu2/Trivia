@@ -1,32 +1,42 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
-import { styles } from '../styles';
+import { View, Text, TouchableOpacity } from 'react-native'; 
+import { styles } from '../styles'; 
 
 export const QuizHeader = ({ current, total, timeLeft, lives, paused, onPause }) => {
-  // Calculate percentage based on completed questions
-  // Subtracting 1 from current ensures the first question shows 0%
   const completed = current - 1;
-  const progressPercentage = Math.round((completed / total) * 100);
+  const progressPercentage = (completed / total) * 100;
 
   return (
-    <View style={styles.header}>
-      {/* Shows 0% for the first question */}
-      <Text style={styles.headerLeft}>{progressPercentage}%</Text>
-      
-      <TouchableOpacity onPress={onPause}>
-        <Text style={styles.pauseText}>{paused ? '▶️' : '⏯️'}</Text>
-      </TouchableOpacity>
+    <View style={[
+      styles.headerContainer, 
+      paused && styles.headerPaused // Background turns red if paused
+    ]}>
+      <View style={styles.header}>
+        <View style={styles.percentageBadge}>
+          <Text style={styles.headerLeft}>{Math.round(progressPercentage)}%</Text>
+        </View>
+        
+        <TouchableOpacity onPress={onPause} style={styles.pauseBtnSmall}>
+          <Text style={styles.pauseText}>{paused ? '▶️' : '⏸️'}</Text>
+        </TouchableOpacity>
 
-      <Text 
-        style={[
-          styles.timer, 
-          (timeLeft < 10 || paused) && { color: 'red' }
-        ]}
-      >
-        {timeLeft}s
-      </Text>
+        {/* Timer circle: red if time is low OR if paused */}
+        <View style={[
+          styles.timerCircle,
+          (timeLeft < 10 || paused) && styles.timerUrgent
+        ]}>
+          <Text style={[styles.timer, (timeLeft < 10 || paused) && { color: '#FFF' }]}>
+            {timeLeft}
+          </Text>
+        </View> 
+        <Text style={styles.livesText}>
+  {'❤️'.repeat(Math.max(0, lives)) + '💔'.repeat(Math.max(0, 3 - lives))}
+</Text>
+      </View>
 
-      <Text style={styles.livesText}>{'❤️'.repeat(lives)}</Text>
+      <View style={styles.progressContainer}>
+        <View style={[styles.progressFill, { width: `${progressPercentage}%` }]} />
+      </View>
     </View>
   );
 };
@@ -51,3 +61,5 @@ export const OptionButton = ({ option, isCorrect, isSelected, isDisabled, onSele
     </TouchableOpacity>
   );
 };
+
+

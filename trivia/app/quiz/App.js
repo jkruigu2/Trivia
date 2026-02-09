@@ -93,9 +93,9 @@ export default function App() {
 
       // 1. AWARD GEMS: Only if the user reaches 100% for the first time
       if (percentage === 100 && previousBest < 100) {
-        currentTotalGems += 5;
-        setGemsEarned(5);
-        await AsyncStorage.setItem('total_gems', currentTotalGems.toString());
+       let x = currentTotalGems + 5;
+        setGemsEarned(x);
+        await AsyncStorage.setItem('total_gems', x.toString());
       }
 
       // 2. UNLOCK NEXT LEVEL

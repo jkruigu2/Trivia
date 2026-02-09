@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   StyleSheet,
   View,
@@ -22,9 +23,9 @@ const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const AnimatedRect = Animated.createAnimatedComponent(Rect);
 
-const MAP_HEIGHT = 2800;
+const MAP_HEIGHT = 1500;
 const LEVEL_COUNT = 9;
-const UNLOCK_COST = 7;
+const UNLOCK_COST = 3;
 const PADDING_TOP = 200;
 const PADDING_BOTTOM = 200;
 
@@ -54,9 +55,18 @@ export default function LevelMap() {
   // 1. ANIMATION VALUES
   const scrollY = useRef(new Animated.Value(0)).current; // Tracks scroll position
   const dashOffset = useRef(new Animated.Value(0)).current; // Tracks path dash
+  
+
+  
+useFocusEffect(
+  React.useCallback(() => {
+loadProgress()
+  }, [])
+);
+
 
   useEffect(() => {
-    loadProgress();
+  // loadProgress();
     // Path Dash Animation
     Animated.loop(
       Animated.timing(dashOffset, {
