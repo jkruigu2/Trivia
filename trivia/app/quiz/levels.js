@@ -7,6 +7,7 @@ import {
   ScrollView,
   SafeAreaView,
   Platform,
+  Alert,
 } from 'react-native';
 import Svg, { Path, Circle, G, Text as SvgText, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -16,9 +17,9 @@ import * as Haptics from 'expo-haptics';
 
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Config Constants
 const MAP_HEIGHT = 2200;
 const LEVEL_COUNT = 9;
+const UNLOCK_COST = 7;
 const PADDING_TOP = 180;
 const PADDING_BOTTOM = 180;
 
@@ -49,7 +50,6 @@ export default function LevelMap() {
     loadProgress();
   }, [name, difficulty]);
 
-  // Initial scroll to current level
   useEffect(() => {
     if (progress.unlocked && scrollRef.current) {
       const currentLevel = levels.find((l) => l.id === progress.unlocked);
@@ -70,7 +70,8 @@ export default function LevelMap() {
       const categoryData = data[name]?.[difficulty] || { unlocked: 1, scores: Array(9).fill(0) };
       
       const gemValue = await AsyncStorage.getItem('total_gems');
-      setTotalGems(gemValue != null ? parseInt(gemValue, 10) : 0);
+      const gems = gemValue != null ? parseInt(gemValue, 10) : 0;
+      setTotalGems(gems);
 
       setProgress({
         unlocked: parseInt(categoryData.unlocked) || 1,
@@ -81,11 +82,59 @@ export default function LevelMap() {
     }
   };
 
-  const handlePressIn = (id, isLocked) => {
-    if (!isLocked) {
-      setPressedId(id);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  const handleUnlockLevel = (levelId) => {
+    // Only allow unlocking the very next level
+    if (levelId !== progress.unlocked + 1) {
+      Alert.alert("Sequence Locked", "You must unlock levels in order!");
+      return;
     }
+
+    if (totalGems < UNLOCK_COST) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Not Enough Gems", `You need ${UNLOCK_COST} gems to skip this level.`);
+      return;
+    }
+
+    Alert.alert(
+      "Unlock Level?",
+      `Spend ${UNLOCK_COST} gems to unlock Level ${levelId}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Unlock", 
+          onPress: async () => {
+            try {
+              const newGemCount = totalGems - UNLOCK_COST;
+              
+              // Update Gems
+              await AsyncStorage.setItem('total_gems', newGemCount.toString());
+              setTotalGems(newGemCount);
+
+              // Update Level Progress
+              const jsonValue = await AsyncStorage.getItem('levelData');
+              let data = jsonValue != null ? JSON.parse(jsonValue) : {};
+              if (!data[name]) data[name] = {};
+              data[name][difficulty] = {
+                ...progress,
+                unlocked: levelId
+              };
+              
+              await AsyncStorage.setItem('levelData', JSON.stringify(data));
+              setProgress(prev => ({ ...prev, unlocked: levelId }));
+              
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } catch (e) {
+              console.error("Failed to unlock level", e);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handlePressIn = (id, isLocked) => {
+    setPressedId(id);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
   const handlePressOut = () => {
@@ -125,7 +174,6 @@ export default function LevelMap() {
 
   return (
     <View style={styles.container}>
-      {/* Background Gradient */}
       <View style={StyleSheet.absoluteFill}>
         <Svg height="100%" width="100%">
           <Defs>
@@ -156,6 +204,7 @@ export default function LevelMap() {
 
           {levels.map((level, index) => {
             const isLocked = level.id > progress.unlocked;
+            const isNextToUnlock = level.id === progress.unlocked + 1;
             const isCurrent = level.id === progress.unlocked;
             const isPressed = pressedId === level.id;
             const bestScore = progress.scores[index] || 0;
@@ -171,34 +220,24 @@ export default function LevelMap() {
                       pathname: '/quiz/App',
                       params: { ...params, level: level.id },
                     });
+                  } else if (isNextToUnlock) {
+                    handleUnlockLevel(level.id);
+                  } else {
+                    Alert.alert("Locked", "Complete previous levels first!");
                   }
                 }}
                 delayPressIn={0}
               >
-                {/* Large Invisible Hitbox (Doesn't scale) */}
                 <Circle cx={level.x} cy={level.y} r={50} fill="transparent" />
 
-                {/* Visual Content (Scales on Press) */}
-                <G 
-                  originX={level.x} 
-                  originY={level.y} 
-                  scale={isPressed ? 0.9 : 1}
-                  opacity={isPressed ? 0.9 : 1}
-                >
-                  {/* Glow for current level */}
-                  {isCurrent && (
-                    <Circle cx={level.x} cy={level.y} r={44} fill="rgba(255, 255, 255, 0.4)" />
-                  )}
-
-                  {/* Shadow */}
+                <G originX={level.x} originY={level.y} scale={isPressed ? 0.9 : 1} opacity={isPressed ? 0.9 : 1}>
+                  {isCurrent && <Circle cx={level.x} cy={level.y} r={44} fill="rgba(255, 255, 255, 0.4)" />}
                   <Circle cx={level.x + 2} cy={level.y + 4} r={30} fill="rgba(0,0,0,0.15)" />
-
-                  {/* Main Circle */}
                   <Circle
                     cx={level.x}
                     cy={level.y}
                     r={30}
-                    fill={isLocked ? '#a0aec0' : isCurrent ? 'url(#unlockedGrad)' : `url(#${level.grad})`}
+                    fill={isLocked ? (isNextToUnlock ? '#cbd5e0' : '#a0aec0') : isCurrent ? 'url(#unlockedGrad)' : `url(#${level.grad})`}
                     stroke="white"
                     strokeWidth={isCurrent ? 7 : 4.5}
                   />
@@ -212,10 +251,9 @@ export default function LevelMap() {
                     textAnchor="middle"
                     pointerEvents="none"
                   >
-                    {isLocked ? '🔒' : level.id}
+                    {isLocked ? (isNextToUnlock ? '💎' : '🔒') : level.id}
                   </SvgText>
 
-                  {/* Score Badge */}
                   {!isLocked && bestScore > 0 && (
                     <G pointerEvents="none">
                       <Circle cx={level.x + 24} cy={level.y - 24} r={15} fill="#ff4757" stroke="white" strokeWidth={2.5} />
@@ -231,7 +269,6 @@ export default function LevelMap() {
         </Svg>
       </ScrollView>
 
-      {/* Header UI */}
       <SafeAreaView style={styles.headerContainer} pointerEvents="box-none">
         <View style={styles.glassHeader}>
           <View style={styles.headerLeft}>
@@ -252,23 +289,7 @@ export default function LevelMap() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#4facfe' },
   headerContainer: { position: 'absolute', top: Platform.OS === 'ios' ? 0 : 30, left: 0, right: 0, paddingHorizontal: 16, zIndex: 100 },
-  glassHeader: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'space-between', 
-    backgroundColor: 'rgba(255, 255, 255, 0.96)', 
-    paddingVertical: 12, 
-    paddingHorizontal: 20, 
-    borderRadius: 32, 
-    borderWidth: 1, 
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 8,
-    marginTop: 12
-  },
+  glassHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(255, 255, 255, 0.96)', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 32, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.6)', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 10, elevation: 8, marginTop: 12 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   categoryText: { color: '#1a202c', fontSize: 15, fontWeight: '900', letterSpacing: 0.4 },
   headerDivider: { width: 1.5, height: 16, backgroundColor: 'rgba(0,0,0,0.12)', marginHorizontal: 12 },
