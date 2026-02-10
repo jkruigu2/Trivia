@@ -1,5 +1,16 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'react-native';
+import { 
+  StyleSheet, 
+  Text, 
+  View, 
+  TouchableOpacity, 
+  ScrollView, 
+  Modal, 
+  TextInput, 
+  Alert,
+  KeyboardAvoidingView,
+  Platform
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
@@ -10,8 +21,8 @@ import { SettingsModal } from './components/SettingsModal';
 import { CategoryCard } from './components/CategoryCard';
 
 const SOUND_KEY = 'soundStatus';
+const USER_DATA_KEY = 'user_profile';
 
-// Static data outside the component to prevent re-creation on every render
 const DIFFICULTIES = [
   { label: 'Easy', value: 'easy', color: '#4CAF50' },
   { label: 'Medium', value: 'medium', color: '#FF9800' },
@@ -29,17 +40,33 @@ const CATEGORIES = [
 
 export default function HomeScreen() {
   const router = useRouter();
+  
+  // App States
   const [selectedDifficulty, setSelectedDifficulty] = useState('easy');
   const [isSettingsVisible, setSettingsVisible] = useState(false);
   const [isSoundOn, setIsSoundOn] = useState(true);
   const soundRef = useRef(null);
 
-  // Initialize Audio and Settings
+  // User Profile States
+  const [userData, setUserData] = useState(null);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [inputName, setInputName] = useState('');
+  const [inputAge, setInputAge] = useState('');
+
   useEffect(() => {
     let isMounted = true;
 
-    async function initAudio() {
+    async function initializeApp() {
       try {
+        // 1. Check if User Profile exists
+        const savedUser = await AsyncStorage.getItem(USER_DATA_KEY);
+        if (savedUser) {
+          setUserData(JSON.parse(savedUser));
+        } else {
+          setShowRegisterModal(true);
+        }
+
+        // 2. Initialize Audio Settings
         const savedStatus = await AsyncStorage.getItem(SOUND_KEY);
         const soundEnabled = savedStatus !== null ? JSON.parse(savedStatus) : true;
         
@@ -52,11 +79,11 @@ export default function HomeScreen() {
         
         soundRef.current = sound;
       } catch (e) {
-        console.error("Audio Init Error:", e);
+        console.error("Initialization Error:", e);
       }
     }
 
-    initAudio();
+    initializeApp();
 
     return () => {
       isMounted = false;
@@ -66,57 +93,127 @@ export default function HomeScreen() {
     };
   }, []);
 
-  // Optimized Toggle Logic
+  // --- Logic Functions ---
+
+  const generateUniqueID = () => {
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const randomChars = letters[Math.floor(Math.random() * 26)] + letters[Math.floor(Math.random() * 26)];
+    const randomNums = Math.floor(10 + Math.random() * 90); // 2-digit number
+    const timestamp = Date.now();
+    return `${randomChars}${randomNums}${timestamp}`;
+  };
+
+  const handleRegister = async () => {
+    const ageNum = parseInt(inputAge);
+
+    // Validation
+    if (!inputName.trim()) {
+      Alert.alert("Invalid Name", "Please enter your name.");
+      return;
+    }
+
+    if (isNaN(ageNum) || ageNum < 3 || ageNum > 70) {
+      Alert.alert("Invalid Age", "Age must be between 3 and 70 years.");
+      return;
+    }
+
+    const newUser = {
+      id: generateUniqueID(),
+      name: inputName.trim(),
+      age: ageNum,
+    };
+
+    try {
+      await AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(newUser));
+      setUserData(newUser);
+      setShowRegisterModal(false);
+    } catch (e) {
+      Alert.alert("Error", "Could not save your profile. Please try again.");
+    }
+  };
+
   const toggleMusic = async () => {
     if (!soundRef.current) return;
-
     const nextValue = !isSoundOn;
     setIsSoundOn(nextValue);
-    
     try {
-      if (nextValue) {
-        await soundRef.current.playAsync();
-      } else {
-        await soundRef.current.pauseAsync();
-      }
+      nextValue ? await soundRef.current.playAsync() : await soundRef.current.pauseAsync();
       await AsyncStorage.setItem(SOUND_KEY, JSON.stringify(nextValue));
     } catch (e) {
       console.error("Toggle Error", e);
     }
   };
 
-  // Navigate to levels
   const handleCategoryPress = useCallback((categoryName) => {
     router.push({ 
       pathname: '/quiz/levels', 
       params: { name: categoryName.toLowerCase(), difficulty: selectedDifficulty } 
     });
   }, [selectedDifficulty]);
+  
+  const  onResetComplete = ()=>{
+    router.push('/');
+  }
 
   return (
     <View style={styles.container}>
       <BackgroundGlow />
-      {/* Optimization: Static star array to avoid re-calculating on every render */}
       {Array.from({ length: 20 }).map((_, i) => <Star key={`star-${i}`} />)}
 
+      {/* Main Header */}
       <View style={styles.header}>
         <View style={{ width: 40 }} />
         <Text style={styles.title}>The Kenyan Trivia</Text>
-        <TouchableOpacity 
-          onPress={() => setSettingsVisible(true)} 
-          style={styles.settingsBtn}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity onPress={() => setSettingsVisible(true)} style={styles.settingsBtn}>
           <Ionicons name="settings-outline" size={26} color="#9129d6" />
         </TouchableOpacity>
       </View>
+
+      {/* Greet user if registered */}
+      {userData && (
+        <Text style={styles.welcomeText}>Jambo, {userData.name}!</Text>
+      )}
 
       <SettingsModal 
         isVisible={isSettingsVisible} 
         onClose={() => setSettingsVisible(false)}
         isSoundOn={isSoundOn}
         onToggleMusic={toggleMusic}
+        onResetComplete={onResetComplete}
       />
+
+      {/* Mandatory Onboarding Modal */}
+      <Modal visible={showRegisterModal} animationType="slide" transparent={false}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.registrationContainer}
+        >
+          <Text style={styles.regTitle}>Karibu!</Text>
+          <Text style={styles.regSubtitle}>Create your profile to start the trivia</Text>
+          
+          <TextInput 
+            style={styles.input} 
+            placeholder="Your Name" 
+            placeholderTextColor="#94A3B8"
+            value={inputName}
+            onChangeText={setInputName}
+            autoCorrect={false}
+          />
+          <TextInput 
+            style={styles.input} 
+            placeholder="Age (3 - 70)" 
+            placeholderTextColor="#94A3B8"
+            keyboardType="number-pad"
+            maxLength={2}
+            value={inputAge}
+            onChangeText={setInputAge}
+          />
+          
+          <TouchableOpacity style={styles.startBtn} onPress={handleRegister}>
+            <Text style={styles.startBtnText}>START CHALLENGE</Text>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.difficultyButtonsContainer}>
@@ -133,7 +230,7 @@ export default function HomeScreen() {
               >
                 <Text style={[
                   styles.difficultyButtonText, 
-                  isActive && styles.activeButtonText
+                  isActive && { color: '#FFF' }
                 ]}>
                   {diff.label}
                 </Text>
@@ -163,11 +260,18 @@ const styles = StyleSheet.create({
     paddingTop: 60, 
     paddingHorizontal: 24, 
     flexDirection: 'row', 
-    alignItems: 'centre', 
+    alignItems: 'center', 
     justifyContent: 'space-between', 
-    marginBottom: 20 
+    marginBottom: 10 
   },
-  title: { fontFamily:'Pacifico',fontSize: 22, fontWeight: '900', color: '#9129d6' },
+  title: { fontSize: 22, fontWeight: '900', color: '#9129d6' },
+  welcomeText: {
+    color: '#94A3B8',
+    textAlign: 'center',
+    fontSize: 14,
+    marginBottom: 10,
+    fontWeight: '600'
+  },
   settingsBtn: { 
     padding: 8, 
     backgroundColor: 'rgba(200,105,165,0.05)', 
@@ -194,16 +298,63 @@ const styles = StyleSheet.create({
     paddingVertical: 10, 
     borderRadius: 10, 
     borderWidth: 1, 
-    borderColor: '#ffffff', 
+    borderColor: '#334155', 
     alignItems: 'center' 
   },
   difficultyButtonText: { color: '#94A3B8', fontWeight: '600' },
-  activeButtonText: { color: '#9129d6' },
   grid: { 
     flexDirection: 'row', 
     flexWrap: 'wrap', 
     justifyContent: 'center', 
     gap: 16, 
     paddingHorizontal: 10 
+  },
+  
+  // Registration Modal Styles
+  registrationContainer: { 
+    flex: 1, 
+    backgroundColor: '#0F172A', 
+    justifyContent: 'center', 
+    padding: 30 
+  },
+  regTitle: { 
+    fontSize: 36, 
+    fontWeight: '900', 
+    color: '#9129d6', 
+    textAlign: 'center', 
+    marginBottom: 8 
+  },
+  regSubtitle: { 
+    color: '#94A3B8', 
+    textAlign: 'center', 
+    marginBottom: 40,
+    fontSize: 16
+  },
+  input: { 
+    backgroundColor: '#1E293B', 
+    borderRadius: 12, 
+    padding: 18, 
+    color: '#fff', 
+    marginBottom: 16,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#334155'
+  },
+  startBtn: { 
+    backgroundColor: '#9129d6', 
+    padding: 20, 
+    borderRadius: 12, 
+    alignItems: 'center', 
+    marginTop: 10,
+    shadowColor: '#9129d6',
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 5
+  },
+  startBtnText: { 
+    color: '#fff', 
+    fontWeight: '900', 
+    fontSize: 16, 
+    letterSpacing: 1.2 
   },
 });

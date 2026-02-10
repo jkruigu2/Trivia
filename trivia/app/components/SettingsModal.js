@@ -19,7 +19,7 @@ export const SettingsModal = ({ isVisible, onClose, isSoundOn, onToggleMusic, on
           onPress: async () => {
             try {
               // Clears the specific keys used in the app
-              await AsyncStorage.multiRemove(['levelData', 'total_gems']);
+              await AsyncStorage.multiRemove(['levelData','user_profile','soundStatus' ,'total_gems']);
               
               Alert.alert("Success", "Progress has been reset.");
               
