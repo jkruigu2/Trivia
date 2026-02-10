@@ -145,7 +145,8 @@ export default function App() {
         timeLeft={timeLeft} 
         lives={lives}
         paused={paused}
-        onPause={() => setPaused(!paused)} 
+        onPause={() => setPaused(!paused)}
+        description={quizData[currentIndex].description}
       />
       <ScrollView>
       <View style={styles.questionCard}>
