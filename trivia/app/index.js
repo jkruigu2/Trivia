@@ -16,9 +16,30 @@ import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// 1. SAFE ADMOB IMPORTS
 import { BackgroundGlow, Star } from './components/BackgroundEffects';
 import { SettingsModal } from './components/SettingsModal';
 import { CategoryCard } from './components/CategoryCard';
+
+// Using a try-catch or checking for native module to prevent Expo Go crashes
+let BannerAd = null;
+let BannerAdSize = null;
+let TestIds = { BANNER: 'ca-app-pub-3940256099942544/6300978111' };
+
+try {
+  const AdLib = require('react-native-google-mobile-ads');
+  const mobileAds = AdLib.default;
+  BannerAd = AdLib.BannerAd;
+  BannerAdSize = AdLib.BannerAdSize;
+  TestIds = AdLib.TestIds;
+  
+  // Only initialize if the native module exists (prevents Expo Go crash)
+  if (Platform.OS !== 'web') {
+     mobileAds().initialize();
+  }
+} catch (e) {
+  console.log("AdMob not available (Running in Expo Go or Web)");
+}
 
 const SOUND_KEY = 'soundStatus';
 const USER_DATA_KEY = 'user_profile';
@@ -41,13 +62,11 @@ const CATEGORIES = [
 export default function HomeScreen() {
   const router = useRouter();
   
-  // App States
   const [selectedDifficulty, setSelectedDifficulty] = useState('easy');
   const [isSettingsVisible, setSettingsVisible] = useState(false);
   const [isSoundOn, setIsSoundOn] = useState(true);
   const soundRef = useRef(null);
 
-  // User Profile States
   const [userData, setUserData] = useState(null);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [inputName, setInputName] = useState('');
@@ -55,10 +74,8 @@ export default function HomeScreen() {
 
   useEffect(() => {
     let isMounted = true;
-
     async function initializeApp() {
       try {
-        // 1. Check if User Profile exists
         const savedUser = await AsyncStorage.getItem(USER_DATA_KEY);
         if (savedUser) {
           setUserData(JSON.parse(savedUser));
@@ -66,7 +83,6 @@ export default function HomeScreen() {
           setShowRegisterModal(true);
         }
 
-        // 2. Initialize Audio Settings
         const savedStatus = await AsyncStorage.getItem(SOUND_KEY);
         const soundEnabled = savedStatus !== null ? JSON.parse(savedStatus) : true;
         
@@ -82,7 +98,6 @@ export default function HomeScreen() {
         console.error("Initialization Error:", e);
       }
     }
-
     initializeApp();
 
     return () => {
@@ -93,43 +108,17 @@ export default function HomeScreen() {
     };
   }, []);
 
-  // --- Logic Functions ---
-
-  const generateUniqueID = () => {
-    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const randomChars = letters[Math.floor(Math.random() * 26)] + letters[Math.floor(Math.random() * 26)];
-    const randomNums = Math.floor(10 + Math.random() * 90); // 2-digit number
-    const timestamp = Date.now();
-    return `${randomChars}${randomNums}${timestamp}`;
-  };
-
   const handleRegister = async () => {
     const ageNum = parseInt(inputAge);
+    if (!inputName.trim()) { Alert.alert("Invalid Name", "Please enter your name."); return; }
+    if (isNaN(ageNum) || ageNum < 3 || ageNum > 70) { Alert.alert("Invalid Age", "Age must be between 3 and 70 years."); return; }
 
-    // Validation
-    if (!inputName.trim()) {
-      Alert.alert("Invalid Name", "Please enter your name.");
-      return;
-    }
-
-    if (isNaN(ageNum) || ageNum < 3 || ageNum > 70) {
-      Alert.alert("Invalid Age", "Age must be between 3 and 70 years.");
-      return;
-    }
-
-    const newUser = {
-      id: generateUniqueID(),
-      name: inputName.trim(),
-      age: ageNum,
-    };
-
+    const newUser = { id: Date.now().toString(), name: inputName.trim(), age: ageNum };
     try {
       await AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(newUser));
       setUserData(newUser);
       setShowRegisterModal(false);
-    } catch (e) {
-      Alert.alert("Error", "Could not save your profile. Please try again.");
-    }
+    } catch (e) { Alert.alert("Error", "Could not save profile."); }
   };
 
   const toggleMusic = async () => {
@@ -139,9 +128,7 @@ export default function HomeScreen() {
     try {
       nextValue ? await soundRef.current.playAsync() : await soundRef.current.pauseAsync();
       await AsyncStorage.setItem(SOUND_KEY, JSON.stringify(nextValue));
-    } catch (e) {
-      console.error("Toggle Error", e);
-    }
+    } catch (e) { console.error("Toggle Error", e); }
   };
 
   const handleCategoryPress = useCallback((categoryName) => {
@@ -150,17 +137,12 @@ export default function HomeScreen() {
       params: { name: categoryName.toLowerCase(), difficulty: selectedDifficulty } 
     });
   }, [selectedDifficulty]);
-  
-  const  onResetComplete = ()=>{
-    router.push('/');
-  }
 
   return (
     <View style={styles.container}>
       <BackgroundGlow />
       {Array.from({ length: 20 }).map((_, i) => <Star key={`star-${i}`} />)}
 
-      {/* Main Header */}
       <View style={styles.header}>
         <View style={{ width: 40 }} />
         <Text style={styles.title}>The Kenyan Trivia</Text>
@@ -169,46 +151,22 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Greet user if registered */}
-      {userData && (
-        <Text style={styles.welcomeText}>Jambo, {userData.name}!</Text>
-      )}
+      {userData && <Text style={styles.welcomeText}>Jambo, {userData.name}!</Text>}
 
       <SettingsModal 
         isVisible={isSettingsVisible} 
         onClose={() => setSettingsVisible(false)}
         isSoundOn={isSoundOn}
         onToggleMusic={toggleMusic}
-        onResetComplete={onResetComplete}
+        onResetComplete={() => router.push('/')}
       />
 
-      {/* Mandatory Onboarding Modal */}
-      <Modal visible={showRegisterModal} animationType="slide" transparent={false}>
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={styles.registrationContainer}
-        >
+      {/* Registration Modal */}
+      <Modal visible={showRegisterModal} animationType="slide">
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.registrationContainer}>
           <Text style={styles.regTitle}>Karibu!</Text>
-          <Text style={styles.regSubtitle}>Create your profile to start the trivia</Text>
-          
-          <TextInput 
-            style={styles.input} 
-            placeholder="Your Name" 
-            placeholderTextColor="#94A3B8"
-            value={inputName}
-            onChangeText={setInputName}
-            autoCorrect={false}
-          />
-          <TextInput 
-            style={styles.input} 
-            placeholder="Age (3 - 70)" 
-            placeholderTextColor="#94A3B8"
-            keyboardType="number-pad"
-            maxLength={2}
-            value={inputAge}
-            onChangeText={setInputAge}
-          />
-          
+          <TextInput style={styles.input} placeholder="Your Name" placeholderTextColor="#94A3B8" value={inputName} onChangeText={setInputName} />
+          <TextInput style={styles.input} placeholder="Age (3 - 70)" placeholderTextColor="#94A3B8" keyboardType="number-pad" value={inputAge} onChangeText={setInputAge} />
           <TouchableOpacity style={styles.startBtn} onPress={handleRegister}>
             <Text style={styles.startBtnText}>START CHALLENGE</Text>
           </TouchableOpacity>
@@ -217,144 +175,56 @@ export default function HomeScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.difficultyButtonsContainer}>
-          {DIFFICULTIES.map((diff) => {
-            const isActive = selectedDifficulty === diff.value;
-            return (
-              <TouchableOpacity
-                key={diff.value}
-                style={[
-                  styles.difficultyButton, 
-                  isActive && { backgroundColor: diff.color, borderColor: diff.color }
-                ]}
-                onPress={() => setSelectedDifficulty(diff.value)}
-              >
-                <Text style={[
-                  styles.difficultyButtonText, 
-                  isActive && { color: '#FFF' }
-                ]}>
-                  {diff.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+          {DIFFICULTIES.map((diff) => (
+            <TouchableOpacity
+              key={diff.value}
+              style={[styles.difficultyButton, selectedDifficulty === diff.value && { backgroundColor: diff.color, borderColor: diff.color }]}
+              onPress={() => setSelectedDifficulty(diff.value)}
+            >
+              <Text style={[styles.difficultyButtonText, selectedDifficulty === diff.value && { color: '#FFF' }]}>{diff.label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         <Text style={styles.sectionTitle}>Choose Category</Text>
         <View style={styles.grid}>
           {CATEGORIES.map((item) => (
-            <CategoryCard 
-              key={item.name} 
-              category={item} 
-              onPress={() => handleCategoryPress(item.name)} 
-            />
+            <CategoryCard key={item.name} category={item} onPress={() => handleCategoryPress(item.name)} />
           ))}
         </View>
-      </ScrollView>
+      </ScrollView> 
+     
+      {/* 2. SAFE RENDERING FOR EXPO GO */}
+      {BannerAd ? (
+        <BannerAd
+          unitId={TestIds.BANNER}
+          size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+          onAdFailedToLoad={(error) => console.log("Ad Load Failed:", error)}
+        />
+      ) : (
+        <View style={{ height: 50, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: '#94A3B8', fontSize: 10 }}>Ad Placeholder (Expo Go)</Text>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F172A' },
-  header: { 
-    paddingTop: 60, 
-    paddingHorizontal: 24, 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'space-between', 
-    marginBottom: 10 
-  },
+  header: { paddingTop: 60, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   title: { fontSize: 22, fontWeight: '900', color: '#9129d6' },
-  welcomeText: {
-    color: '#94A3B8',
-    textAlign: 'center',
-    fontSize: 14,
-    marginBottom: 10,
-    fontWeight: '600'
-  },
-  settingsBtn: { 
-    padding: 8, 
-    backgroundColor: 'rgba(200,105,165,0.05)', 
-    borderRadius: 12 
-  },
+  welcomeText: { color: '#94A3B8', textAlign: 'center', fontSize: 14, marginBottom: 10, fontWeight: '600' },
+  settingsBtn: { padding: 8, backgroundColor: 'rgba(200,105,165,0.05)', borderRadius: 12 },
   scrollContent: { paddingBottom: 40 },
-  sectionTitle: { 
-    fontSize: 16, 
-    fontWeight: '700', 
-    color: '#9129d6', 
-    marginBottom: 12, 
-    paddingHorizontal: 24, 
-    marginTop: 10 
-  },
-  difficultyButtonsContainer: { 
-    flexDirection: 'row', 
-    justifyContent: 'center', 
-    gap: 10, 
-    marginBottom: 20, 
-    paddingHorizontal: 20 
-  },
-  difficultyButton: { 
-    flex: 1, 
-    paddingVertical: 10, 
-    borderRadius: 10, 
-    borderWidth: 1, 
-    borderColor: '#334155', 
-    alignItems: 'center' 
-  },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#9129d6', marginBottom: 12, paddingHorizontal: 24, marginTop: 10 },
+  difficultyButtonsContainer: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginBottom: 20, paddingHorizontal: 20 },
+  difficultyButton: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: '#334155', alignItems: 'center' },
   difficultyButtonText: { color: '#94A3B8', fontWeight: '600' },
-  grid: { 
-    flexDirection: 'row', 
-    flexWrap: 'wrap', 
-    justifyContent: 'center', 
-    gap: 16, 
-    paddingHorizontal: 10 
-  },
-  
-  // Registration Modal Styles
-  registrationContainer: { 
-    flex: 1, 
-    backgroundColor: '#0F172A', 
-    justifyContent: 'center', 
-    padding: 30 
-  },
-  regTitle: { 
-    fontSize: 36, 
-    fontWeight: '900', 
-    color: '#9129d6', 
-    textAlign: 'center', 
-    marginBottom: 8 
-  },
-  regSubtitle: { 
-    color: '#94A3B8', 
-    textAlign: 'center', 
-    marginBottom: 40,
-    fontSize: 16
-  },
-  input: { 
-    backgroundColor: '#1E293B', 
-    borderRadius: 12, 
-    padding: 18, 
-    color: '#fff', 
-    marginBottom: 16,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#334155'
-  },
-  startBtn: { 
-    backgroundColor: '#9129d6', 
-    padding: 20, 
-    borderRadius: 12, 
-    alignItems: 'center', 
-    marginTop: 10,
-    shadowColor: '#9129d6',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 5
-  },
-  startBtnText: { 
-    color: '#fff', 
-    fontWeight: '900', 
-    fontSize: 16, 
-    letterSpacing: 1.2 
-  },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 16, paddingHorizontal: 10 },
+  registrationContainer: { flex: 1, backgroundColor: '#0F172A', justifyContent: 'center', padding: 30 },
+  regTitle: { fontSize: 36, fontWeight: '900', color: '#9129d6', textAlign: 'center', marginBottom: 40 },
+  input: { backgroundColor: '#1E293B', borderRadius: 12, padding: 18, color: '#fff', marginBottom: 16, borderWidth: 1, borderColor: '#334155' },
+  startBtn: { backgroundColor: '#9129d6', padding: 20, borderRadius: 12, alignItems: 'center', marginTop: 10 },
+  startBtnText: { color: '#fff', fontWeight: '900', fontSize: 16 },
 });

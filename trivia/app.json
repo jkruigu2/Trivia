@@ -14,11 +14,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "plugins": [
-      "expo-router"
-    ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jkruigu.trivia"
     },
     "android": {
       "adaptiveIcon": {
@@ -31,6 +29,16 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-6324435412261125~4527798017",
+          "iosAppId": "ca-app-pub-xxxxxxxx~xxxxxxxx"
+        }
+      ],
+      "expo-router"
+    ],
     "extra": {
       "router": {},
       "eas": {
@@ -38,5 +46,9 @@
       }
     },
     "owner": "jkruigu"
+  },
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-6324435412261125~4527798017",
+    "ios_app_id": "ca-app-pub-xxxxxxxx~xxxxxxxx"
   }
 }

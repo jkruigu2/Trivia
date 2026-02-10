@@ -19,20 +19,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-// --- ADMOB CONDITIONAL SETUP ---
-let useRewardedAd = () => ({ isLoaded: false, show: () => {}, load: () => {}, isEarnedReward: false });
-let TestIds = { REWARDED: '' };
-let mobileAds = null;
-
-try {
-  // Only attempt to require if not in Expo Go (or if using dev builds)
-  const AdLib = require('react-native-google-mobile-ads');
-  useRewardedAd = AdLib.useRewardedAd;
-  TestIds = AdLib.TestIds;
-  mobileAds = AdLib.default;
-} catch (e) {
-  console.log("AdMob not detected. Using Mock Mode for Expo Go.");
-}
+// ADMOB IMPORT
+import mobileAds, { RewardedAd, RewardedAdEventType, TestIds, useRewardedAd } from 'react-native-google-mobile-ads';
 
 const { width } = Dimensions.get('window');
 const AnimatedPath = Animated.createAnimatedComponent(Path);
@@ -43,6 +31,7 @@ const UNLOCK_COST = 3;
 const PADDING_TOP = 200;
 const PADDING_BOTTOM = 200;
 
+// Use TestIds.REWARDED during development!
 const adUnitId = __DEV__ ? TestIds.REWARDED : 'ca-app-pub-6324435412261125/YOUR_REWARD_ID';
 
 const levels = Array.from({ length: LEVEL_COUNT }, (_, i) => {
@@ -66,55 +55,48 @@ export default function LevelMap() {
   const params = useLocalSearchParams();
   const { name = 'Adventure', difficulty = 'Easy' } = params;
 
+  // ANIMATION VALUES
   const scrollY = useRef(new Animated.Value(0)).current;
   const dashOffset = useRef(new Animated.Value(0)).current;
 
-  // --- ADMOB HOOK (Safe) ---
-  const ad = useRewardedAd(adUnitId, {
+  // --- ADMOB LOGIC ---
+  const { isLoaded, isEarnedReward, show, load, reward } = useRewardedAd(adUnitId, {
     requestNonPersonalizedAdsOnly: true,
   });
 
+  // Handle the reward when the ad is finished
   useEffect(() => {
-    if (ad.isEarnedReward) {
+    if (isEarnedReward) {
       addGems(5);
     }
-  }, [ad.isEarnedReward]);
+  }, [isEarnedReward]);
 
   const addGems = async (amount) => {
     const newGems = totalGems + amount;
     await AsyncStorage.setItem('total_gems', newGems.toString());
     setTotalGems(newGems);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert("Success", `You received ${amount} gems.`);
-    if (mobileAds) ad.load();
+    Alert.alert("Reward Earned!", `You received ${amount} gems.`);
+    load(); // Pre-load the next ad
   };
 
   const handleWatchAd = () => {
-    if (mobileAds && ad.isLoaded) {
-      Alert.alert("Free Gems", "Watch a video for 5 gems?", [
+    if (isLoaded) {
+      Alert.alert("Free Gems", "Watch a short video to earn 5 gems?", [
         { text: "Cancel", style: "cancel" },
-        { text: "Watch Now", onPress: () => ad.show() },
+        { text: "Watch Now", onPress: () => show() },
       ]);
     } else {
-      // Mock for Expo Go or when Ad isn't loaded
-      Alert.alert(
-        mobileAds ? "Ad Loading" : "Ads Disabled", 
-        mobileAds ? "Please wait a moment..." : "Running in Expo Go. Mock reward?",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Mock Reward (+5)", onPress: () => addGems(5) }
-        ]
-      );
+      Alert.alert("Ad Loading", "The video is still buffering. Please try again in a few seconds.");
+      load();
     }
   };
+  // --- END ADMOB LOGIC ---
 
   useFocusEffect(
     React.useCallback(() => {
       loadProgress();
-      if (mobileAds) {
-        mobileAds().initialize();
-        ad.load();
-      }
+      mobileAds().initialize(); // Ensure SDK is ready
     }, [])
   );
 
@@ -154,7 +136,7 @@ export default function LevelMap() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert("Locked", `You need ${UNLOCK_COST} gems.`, [
         { text: "Ok" },
-        { text: "Earn Gems", onPress: handleWatchAd }
+        { text: "Watch Ad for Gems", onPress: handleWatchAd }
       ]);
       return;
     }
@@ -240,6 +222,7 @@ export default function LevelMap() {
         </Svg>
       </Animated.ScrollView>
 
+      {/* Glass Header */}
       <SafeAreaView style={styles.headerContainer} pointerEvents="box-none">
         <View style={styles.glassHeader}>
           <View style={styles.headerLeft}>
