@@ -36,7 +36,7 @@ export const SettingsModal = ({ isVisible, onClose, isSoundOn, onToggleMusic, on
           style: "destructive",
           onPress: async () => {
             try {
-              await AsyncStorage.multiRemove(['levelData', USER_DATA_KEY, 'soundStatus', 'total_gems']);
+              await AsyncStorage.multiRemove(['levelData', USER_DATA_KEY,'total_gems']);
               Alert.alert("Success", "Progress cleared.");
               if (onResetComplete) onResetComplete();
               onClose();

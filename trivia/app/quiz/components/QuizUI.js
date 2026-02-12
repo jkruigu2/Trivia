@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView, Alert } from 'react-native';
+import { 
+  View, 
+  Text, 
+  TouchableOpacity, 
+  Modal, 
+  StyleSheet, 
+  ScrollView, 
+  Alert, 
+  AppState // Required to detect background/foreground
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { styles } from '../styles'; 
 
@@ -19,6 +28,20 @@ export const QuizHeader = ({
   const completed = current - 1;
   const progressPercentage = (completed / total) * 100;
 
+  // --- Background Pause Logic ---
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      // Logic: If app moves away from 'active' and is not already paused, trigger onPause
+      if (nextAppState !== 'active' && !paused) {
+        onPause();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [paused, onPause]);
+
   // Reset hint purchase status when the question changes
   useEffect(() => {
     setHasPurchasedHint(false);
@@ -30,13 +53,11 @@ export const QuizHeader = ({
       const currentGems = storedGems ? parseInt(storedGems) : 0;
       setUserGems(currentGems);
 
-      // If already bought for THIS question, just show it
       if (hasPurchasedHint) {
         setModalVisible(true);
         return;
       }
 
-      // If user has enough gems, ask to redeem
       if (currentGems >= 2) {
         Alert.alert(
           "Unlock Hint",
@@ -50,7 +71,6 @@ export const QuizHeader = ({
           ]
         );
       } else {
-        // Not enough gems logic
         setModalVisible(true);
       }
     } catch (error) {
@@ -111,7 +131,7 @@ export const QuizHeader = ({
         </View>
 
         <TouchableOpacity style={styles.pauseBtnSmall} onPress={handleHintPress}>
-          <Text style={styles.pauseText}>{'❓'}</Text>
+          <Text style={styles.pauseText}>{'💡'}</Text>
         </TouchableOpacity>
         
         <TouchableOpacity onPress={onPause} style={styles.pauseBtnSmall}>

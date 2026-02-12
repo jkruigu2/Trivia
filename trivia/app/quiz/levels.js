@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   StyleSheet,
@@ -19,20 +19,25 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-// --- ADMOB CONDITIONAL SETUP ---
+// --- ADMOB DISABLED VIA COMMENTS ---
+/*
 let useRewardedAd = () => ({ isLoaded: false, show: () => {}, load: () => {}, isEarnedReward: false });
 let TestIds = { REWARDED: '' };
 let mobileAds = null;
 
 try {
-  // Only attempt to require if not in Expo Go (or if using dev builds)
   const AdLib = require('react-native-google-mobile-ads');
   useRewardedAd = AdLib.useRewardedAd;
   TestIds = AdLib.TestIds;
   mobileAds = AdLib.default;
 } catch (e) {
-  console.log("AdMob not detected. Using Mock Mode for Expo Go.");
+  console.log("AdMob not detected.");
 }
+*/
+
+// AdMob Stubs to prevent reference errors
+const mobileAds = null; 
+const useRewardedAd = () => ({ isLoaded: false, show: () => {}, load: () => {}, isEarnedReward: false });
 
 const { width } = Dimensions.get('window');
 const AnimatedPath = Animated.createAnimatedComponent(Path);
@@ -43,7 +48,7 @@ const UNLOCK_COST = 3;
 const PADDING_TOP = 200;
 const PADDING_BOTTOM = 200;
 
-const adUnitId = __DEV__ ? TestIds.REWARDED : 'ca-app-pub-6324435412261125/YOUR_REWARD_ID';
+// const adUnitId = __DEV__ ? TestIds.REWARDED : 'ca-app-pub-6324435412261125/YOUR_REWARD_ID';
 
 const levels = Array.from({ length: LEVEL_COUNT }, (_, i) => {
   let xPos = width * 0.5;
@@ -69,7 +74,8 @@ export default function LevelMap() {
   const scrollY = useRef(new Animated.Value(0)).current;
   const dashOffset = useRef(new Animated.Value(0)).current;
 
-  // --- ADMOB HOOK (Safe) ---
+  // --- ADMOB HOOK DISABLED ---
+  /*
   const ad = useRewardedAd(adUnitId, {
     requestNonPersonalizedAdsOnly: true,
   });
@@ -79,6 +85,7 @@ export default function LevelMap() {
       addGems(5);
     }
   }, [ad.isEarnedReward]);
+  */
 
   const addGems = async (amount) => {
     const newGems = totalGems + amount;
@@ -86,20 +93,17 @@ export default function LevelMap() {
     setTotalGems(newGems);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Alert.alert("Success", `You received ${amount} gems.`);
-    if (mobileAds) ad.load();
+    // if (mobileAds) ad.load();
   };
 
   const handleWatchAd = () => {
-    if (mobileAds && ad.isLoaded) {
-      Alert.alert("Free Gems", "Watch a video for 5 gems?", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Watch Now", onPress: () => ad.show() },
-      ]);
+    // Logic defaults to Mock Mode since AdMob is commented out
+    if (mobileAds /* && ad.isLoaded */) {
+       // ad.show()
     } else {
-      // Mock for Expo Go or when Ad isn't loaded
       Alert.alert(
-        mobileAds ? "Ad Loading" : "Ads Disabled", 
-        mobileAds ? "Please wait a moment..." : "Running in Expo Go. Mock reward?",
+        "Ads Disabled", 
+        "Running in Development/Expo Go. Get mock reward?",
         [
           { text: "Cancel", style: "cancel" },
           { text: "Mock Reward (+5)", onPress: () => addGems(5) }
@@ -111,10 +115,12 @@ export default function LevelMap() {
   useFocusEffect(
     React.useCallback(() => {
       loadProgress();
+      /*
       if (mobileAds) {
         mobileAds().initialize();
         ad.load();
       }
+      */
     }, [])
   );
 
