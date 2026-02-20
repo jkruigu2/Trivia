@@ -1,11 +1,10 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   StyleSheet,
   View,
   Text,
   Dimensions,
-  ScrollView,
   SafeAreaView,
   Platform,
   Alert,
@@ -19,23 +18,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
-// --- ADMOB DISABLED VIA COMMENTS ---
-/*
-let useRewardedAd = () => ({ isLoaded: false, show: () => {}, load: () => {}, isEarnedReward: false });
-let TestIds = { REWARDED: '' };
-let mobileAds = null;
-
-try {
-  const AdLib = require('react-native-google-mobile-ads');
-  useRewardedAd = AdLib.useRewardedAd;
-  TestIds = AdLib.TestIds;
-  mobileAds = AdLib.default;
-} catch (e) {
-  console.log("AdMob not detected.");
-}
-*/
-
-// AdMob Stubs to prevent reference errors
 const mobileAds = null; 
 const useRewardedAd = () => ({ isLoaded: false, show: () => {}, load: () => {}, isEarnedReward: false });
 
@@ -48,8 +30,6 @@ const UNLOCK_COST = 3;
 const PADDING_TOP = 200;
 const PADDING_BOTTOM = 200;
 
-// const adUnitId = __DEV__ ? TestIds.REWARDED : 'ca-app-pub-6324435412261125/YOUR_REWARD_ID';
-
 const levels = Array.from({ length: LEVEL_COUNT }, (_, i) => {
   let xPos = width * 0.5;
   if (i % 4 === 1) xPos = width * 0.22;
@@ -58,7 +38,8 @@ const levels = Array.from({ length: LEVEL_COUNT }, (_, i) => {
     id: i + 1,
     x: xPos,
     y: PADDING_TOP + i * ((MAP_HEIGHT - PADDING_TOP - PADDING_BOTTOM) / (LEVEL_COUNT - 1)),
-    grad: i < 3 ? 'candyPink' : i < 6 ? 'candyBlue' : 'candyYellow',
+    // Order: Pink -> Purple -> Deep Pink
+    grad: i < 3 ? 'candyPink' : i < 6 ? 'candyPurple' : 'candyDeepPink',
   };
 });
 
@@ -74,53 +55,28 @@ export default function LevelMap() {
   const scrollY = useRef(new Animated.Value(0)).current;
   const dashOffset = useRef(new Animated.Value(0)).current;
 
-  // --- ADMOB HOOK DISABLED ---
-  /*
-  const ad = useRewardedAd(adUnitId, {
-    requestNonPersonalizedAdsOnly: true,
-  });
-
-  useEffect(() => {
-    if (ad.isEarnedReward) {
-      addGems(5);
-    }
-  }, [ad.isEarnedReward]);
-  */
-
   const addGems = async (amount) => {
     const newGems = totalGems + amount;
     await AsyncStorage.setItem('total_gems', newGems.toString());
     setTotalGems(newGems);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Alert.alert("Success", `You received ${amount} gems.`);
-    // if (mobileAds) ad.load();
   };
 
   const handleWatchAd = () => {
-    // Logic defaults to Mock Mode since AdMob is commented out
-    if (mobileAds /* && ad.isLoaded */) {
-       // ad.show()
-    } else {
-      Alert.alert(
-        "Ads Disabled", 
-        "Running in Development/Expo Go. Get mock reward?",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Mock Reward (+5)", onPress: () => addGems(5) }
-        ]
-      );
-    }
+    Alert.alert(
+      "Ads Disabled", 
+      "Development Mode. Get mock reward?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Mock Reward (+5)", onPress: () => addGems(5) }
+      ]
+    );
   };
 
   useFocusEffect(
     React.useCallback(() => {
       loadProgress();
-      /*
-      if (mobileAds) {
-        mobileAds().initialize();
-        ad.load();
-      }
-      */
     }, [])
   );
 
@@ -135,9 +91,10 @@ export default function LevelMap() {
     ).start();
   }, []);
 
+  // Background interpolation: Starts with Pink (#ffafbd) and moves to Purple
   const backgroundColor = scrollY.interpolate({
-    inputRange: [0, MAP_HEIGHT * 0.3, MAP_HEIGHT * 0.6, MAP_HEIGHT],
-    outputRange: ['#4facfe', '#00f2fe', '#f093fb', '#243949'],
+    inputRange: [0, MAP_HEIGHT * 0.4, MAP_HEIGHT * 0.7, MAP_HEIGHT],
+    outputRange: ['#ffafbd', '#ffc3a0', '#9129d6', '#4834d4'],
   });
 
   const loadProgress = async () => {
@@ -186,11 +143,11 @@ export default function LevelMap() {
       const isUnlocked = next.id <= progress.unlocked;
       return (
         <G key={`path-${i}`}>
-          <Path d={d} fill="none" stroke="rgba(0,0,0,0.05)" strokeWidth={14} strokeLinecap="round" />
+          <Path d={d} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth={14} strokeLinecap="round" />
           <AnimatedPath
             d={d}
             fill="none"
-            stroke={isUnlocked ? 'white' : 'rgba(255,255,255,0.2)'}
+            stroke={isUnlocked ? 'white' : 'rgba(255,255,255,0.3)'}
             strokeWidth={isUnlocked ? 8 : 5}
             strokeDasharray={[15, 20]}
             strokeDashoffset={dashOffset}
@@ -215,10 +172,23 @@ export default function LevelMap() {
       >
         <Svg height={MAP_HEIGHT} width={width}>
           <Defs>
-            <LinearGradient id="candyPink" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#ff9a9e" /><Stop offset="100%" stopColor="#fecfef" /></LinearGradient>
-            <LinearGradient id="candyBlue" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#a1c4fd" /><Stop offset="100%" stopColor="#c2e9fb" /></LinearGradient>
-            <LinearGradient id="candyYellow" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#f6d365" /><Stop offset="100%" stopColor="#fda085" /></LinearGradient>
-            <LinearGradient id="unlockedGrad" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#FFF200" /><Stop offset="100%" stopColor="#FF9000" /></LinearGradient>
+            {/* The Pink Gradient starts here 🩷 */}
+            <LinearGradient id="candyPink" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor="#ff9a9e" />
+              <Stop offset="100%" stopColor="#fecfef" />
+            </LinearGradient>
+            <LinearGradient id="candyPurple" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor="#9129d6" />
+              <Stop offset="100%" stopColor="#6c5ce7" />
+            </LinearGradient>
+            <LinearGradient id="candyDeepPink" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor="#e84393" />
+              <Stop offset="100%" stopColor="#d63031" />
+            </LinearGradient>
+            <LinearGradient id="unlockedGrad" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor="#FFF200" />
+              <Stop offset="100%" stopColor="#FF9000" />
+            </LinearGradient>
           </Defs>
           {renderPathSegments()}
           {levels.map((level) => {
@@ -234,9 +204,9 @@ export default function LevelMap() {
               >
                 <Circle cx={level.x} cy={level.y} r={50} fill="transparent" />
                 <G transform={isPressed ? `translate(${level.x}, ${level.y}) scale(0.9) translate(${-level.x}, ${-level.y})` : ''}>
-                  {isCurrent && <Circle cx={level.x} cy={level.y} r={44} fill="white" opacity="0.3" />}
-                  <Circle cx={level.x} cy={level.y} r={30} fill={isLocked ? (isNext ? '#cbd5e0' : '#718096') : isCurrent ? 'url(#unlockedGrad)' : `url(#${level.grad})`} stroke="white" strokeWidth={isCurrent ? 6 : 4} />
-                  <SvgText x={level.x} y={level.y + 8} fill={isLocked ? '#edf2f7' : '#2d3748'} fontSize="20" fontWeight="bold" textAnchor="middle">
+                  {isCurrent && <Circle cx={level.x} cy={level.y} r={44} fill="white" opacity="0.4" />}
+                  <Circle cx={level.x} cy={level.y} r={30} fill={isLocked ? (isNext ? '#dcdde1' : '#7f8c8d') : isCurrent ? 'url(#unlockedGrad)' : `url(#${level.grad})`} stroke="white" strokeWidth={isCurrent ? 6 : 4} />
+                  <SvgText x={level.x} y={level.y + 8} fill={isLocked ? '#a4b0be' : '#2d3748'} fontSize="20" fontWeight="bold" textAnchor="middle">
                     {isLocked ? (isNext ? '💎' : '🔒') : level.id}
                   </SvgText>
                 </G>
@@ -257,10 +227,10 @@ export default function LevelMap() {
           <View style={styles.headerRight}>
             <View style={styles.gemBadge}>
               <Text style={styles.gemText}>{totalGems}</Text>
-              <Ionicons name="diamond" size={18} color="#00E5FF" />
+              <Ionicons name="diamond" size={18} color="#e84393" />
             </View>
             <TouchableOpacity onPress={handleWatchAd} style={styles.plusButton}>
-              <Ionicons name="add-circle" size={28} color="#00BCD4" />
+              <Ionicons name="add-circle" size={28} color="#e84393" />
             </TouchableOpacity>
           </View>
         </View>
@@ -274,16 +244,16 @@ const styles = StyleSheet.create({
   headerContainer: { position: 'absolute', top: Platform.OS === 'ios' ? 0 : 30, left: 0, right: 0, paddingHorizontal: 16, zIndex: 100 },
   glassHeader: { 
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', 
-    backgroundColor: 'rgba(255, 255, 255, 0.95)', paddingVertical: 10, paddingHorizontal: 18, 
-    borderRadius: 30, borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)',
-    shadowOpacity: 0.15, shadowRadius: 10, elevation: 6 
+    backgroundColor: 'rgba(255, 255, 255, 0.92)', paddingVertical: 10, paddingHorizontal: 18, 
+    borderRadius: 30, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
+    shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center' },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
-  categoryText: { fontSize: 13, fontWeight: '900', color: '#1a202c' },
-  headerDivider: { width: 1.5, height: 16, backgroundColor: '#cbd5e0', marginHorizontal: 12 },
-  difficultyText: { fontSize: 12, color: '#718096', fontWeight: 'bold' },
-  gemBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0, 229, 255, 0.12)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  gemText: { color: '#00BCD4', fontSize: 16, fontWeight: 'bold', marginRight: 4 },
+  categoryText: { fontSize: 13, fontWeight: '900', color: '#9129d6' },
+  headerDivider: { width: 1.5, height: 16, backgroundColor: '#f1f2f6', marginHorizontal: 12 },
+  difficultyText: { fontSize: 12, color: '#9129d6', fontWeight: 'bold' },
+  gemBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(232, 67, 147, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  gemText: { color: '#e84393', fontSize: 16, fontWeight: 'bold', marginRight: 4 },
   plusButton: { marginLeft: 8 },
 });
