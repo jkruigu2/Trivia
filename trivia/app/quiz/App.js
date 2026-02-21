@@ -34,6 +34,7 @@ export default function App() {
   const [showUnlockChip, setShowUnlockChip] = useState(false);
   const [unlockedLevel, setUnlockedLevel] = useState(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(-50)).current;
 
   const { quizData, totalTime } = useMemo(() => {
     const targetDiff = (params.difficulty || 'Easy').toLowerCase();
@@ -62,20 +63,18 @@ export default function App() {
     setUnlockedLevel(level);
     setShowUnlockChip(true);
     
-    // Fade In
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: true,
-    }).start();
+    // Animate In
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 20, friction: 6, useNativeDriver: true })
+    ]).start();
 
-    // Fade Out after 3 seconds
+    // Animate Out
     setTimeout(() => {
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }).start(() => setShowUnlockChip(false));
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
+        Animated.timing(slideAnim, { toValue: -50, duration: 400, useNativeDriver: true })
+      ]).start(() => setShowUnlockChip(false));
     }, 3000);
   };
 
@@ -99,10 +98,12 @@ export default function App() {
 
   const timeUsed = Math.max(0, totalTime - timeLeft);
 
+  // --- Progress & Reward Logic ---
   const saveProgress = async (newScore, isFinal = false) => {
     try {
       const jsonValue = await AsyncStorage.getItem('levelData');
       let data = jsonValue != null ? JSON.parse(jsonValue) : {};
+      
       const cat = params.name;
       const diff = params.difficulty;
       const levelIdx = (parseInt(params.level) || 1) - 1;
@@ -114,8 +115,12 @@ export default function App() {
 
       const stats = data[cat][diff];
       const percentage = Math.round((newScore / quizData.length) * 100);
+      
+      // Capture previous score to check for first-time completion
+      const previousBest = stats.scores[levelIdx];
 
-      if (percentage > stats.scores[levelIdx]) {
+      // Update score if current attempt is better
+      if (percentage > previousBest) {
         stats.scores[levelIdx] = percentage;
         if (isFinal) stats.times[levelIdx] = timeUsed;
       }
@@ -123,19 +128,25 @@ export default function App() {
       // Logic for unlocking next level
       if (percentage >= 70 && (levelIdx + 1) === stats.unlocked && (levelIdx + 1) < 9) {
         stats.unlocked = levelIdx + 2;
-        triggerAchievement(levelIdx + 2); // Show the chip!
+        triggerAchievement(levelIdx + 2);
       }
 
       await AsyncStorage.setItem('levelData', JSON.stringify(data));
 
-      if (isFinal && percentage === 100) {
+      // --- FIRST TIME REWARD LOGIC ---
+      if (isFinal && percentage === 100 && previousBest < 100) {
         const gemValue = await AsyncStorage.getItem('total_gems');
         let currentGems = gemValue != null ? parseInt(gemValue) : 0;
+        
         currentGems += 5;
-        setGemsEarned(5);
+        setGemsEarned(5); 
         await AsyncStorage.setItem('total_gems', currentGems.toString());
+      } else if (isFinal) {
+        setGemsEarned(0); // Ensure no "ghost rewards" on replay
       }
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error("Progress Error:", e); 
+    }
   };
 
   const handleAnswer = (option) => {
@@ -146,6 +157,7 @@ export default function App() {
     const isLast = currentIndex + 1 >= quizData.length;
     const finalScoreForThisStep = isCorrect ? score + 1 : score;
 
+    // Check if we need to save progress (mid-game death or final question)
     if (isCorrect || isLast || lives === 1) {
       saveProgress(finalScoreForThisStep, isLast || (lives === 1 && !isCorrect));
     }
@@ -183,7 +195,7 @@ export default function App() {
         timeUsed={timeUsed} 
         params={params}
         gemsEarned={gemsEarned}
-        description={quizData[currentIndex].description}
+        description={quizData[currentIndex]?.description || "Great effort!"}
         onRestart={() => {
           setCurrentIndex(0); setScore(0); setLives(3); setTimeLeft(totalTime);
           setSelectedOption(null); setGameOverReason(null); setGemsEarned(0); setPaused(false);
@@ -205,7 +217,12 @@ export default function App() {
 
       {/* --- ACHIEVEMENT CHIP --- */}
       {showUnlockChip && (
-        <Animated.View style={[localStyles.chipContainer, { opacity: fadeAnim }]}>
+        <Animated.View 
+          style={[
+            localStyles.chipContainer, 
+            { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
+          ]}
+        >
           <View style={localStyles.chip}>
             <Text style={localStyles.chipEmoji}>🎉</Text>
             <Text style={localStyles.chipText}>Level {unlockedLevel} Unlocked!</Text>
@@ -261,11 +278,9 @@ const localStyles = StyleSheet.create({
   modalTitle: { fontSize: 24, color: '#FFF', fontWeight: 'bold', marginBottom: 25 },
   resumeButton: { backgroundColor: '#4CAF50', width: '100%', padding: 15, borderRadius: 12, alignItems: 'center' },
   buttonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
-  
-  // Achievement Chip Styles
   chipContainer: {
     position: 'absolute',
-    top: 100,
+    top: 50,
     left: 0,
     right: 0,
     alignItems: 'center',
