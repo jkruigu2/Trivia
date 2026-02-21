@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, ScrollView, StyleSheet, Modal, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QuizHeader, OptionButton } from './components/QuizUI';
@@ -8,7 +8,6 @@ import { styles as globalStyles } from './styles';
 
 const allData = require('./src/data.json');
 
-// Helper to shuffle options
 const shuffleArray = (array) => {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -22,7 +21,6 @@ export default function App() {
   const params = useLocalSearchParams();
   const router = useRouter();
 
-  // --- Game State ---
   const [currentIndex, setCurrentIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
@@ -31,7 +29,6 @@ export default function App() {
   const [gameOverReason, setGameOverReason] = useState(null);
   const [gemsEarned, setGemsEarned] = useState(0);
 
-  // --- Quiz Data Initialization ---
   const { quizData, totalTime } = useMemo(() => {
     const targetDiff = (params.difficulty || 'Easy').toLowerCase();
     const targetCat = params.name || 'Adventure';
@@ -49,17 +46,13 @@ export default function App() {
     }));
 
     const timePerQ = targetDiff === "easy" ? 20 : targetDiff === "medium" ? 15 : 10;
-    return { 
-      quizData: randomizedQuestions, 
-      totalTime: randomizedQuestions.length * timePerQ 
-    };
+    return { quizData: randomizedQuestions, totalTime: randomizedQuestions.length * timePerQ };
   }, [params.level, params.name, params.difficulty]);
 
   const [timeLeft, setTimeLeft] = useState(totalTime);
 
-  // --- The Timer Logic ---
+  // Timer logic - halts if paused is true
   useEffect(() => {
-    // STOP TIMER: If paused OR if a game over reason exists, do not run interval
     if (paused || gameOverReason || timeLeft <= 0) return;
 
     const timer = setInterval(() => {
@@ -73,72 +66,15 @@ export default function App() {
       });
     }, 1000);
 
-    // Cleanup on unmount or state change
     return () => clearInterval(timer);
   }, [paused, gameOverReason, timeLeft]);
 
-  // Calculate fixed time used for DB/UI
   const timeUsed = Math.max(0, totalTime - timeLeft);
 
-  // --- Game Mechanics ---
-  const handleAnswer = (option) => {
-    if (selectedOption || gameOverReason) return;
-    setSelectedOption(option);
-
-    const isCorrect = option === quizData[currentIndex].correct;
-    
-    setTimeout(() => {
-      if (isCorrect) {
-        setScore(prev => prev + 1);
-        if (currentIndex + 1 < quizData.length) {
-          setCurrentIndex(prev => prev + 1);
-          setSelectedOption(null);
-        } else {
-          setGameOverReason('completed');
-        }
-      } else {
-        const newLives = lives - 1;
-        setLives(newLives);
-        if (newLives <= 0) {
-          setGameOverReason('lost_lives');
-        } else {
-          // If they got it wrong but have lives, move to next anyway (standard quiz style)
-          if (currentIndex + 1 < quizData.length) {
-            setCurrentIndex(prev => prev + 1);
-            setSelectedOption(null);
-          } else {
-            setGameOverReason('completed');
-          }
-        }
-      }
-    }, 600);
-  };
-
-  const resetGame = () => {
-    setCurrentIndex(0);
-    setScore(0);
-    setLives(3);
-    setTimeLeft(totalTime);
-    setSelectedOption(null);
-    setGameOverReason(null);
-    setGemsEarned(0);
-    setPaused(false);
-  };
-
-  // --- Persistence Logic ---
-  useEffect(() => {
-    if (gameOverReason === 'completed') {
-      processLevelCompletion();
-    }
-  }, [gameOverReason]);
-
-  const processLevelCompletion = async () => {
+  const saveProgress = async (newScore, isFinal = false) => {
     try {
       const jsonValue = await AsyncStorage.getItem('levelData');
-      const gemValue = await AsyncStorage.getItem('total_gems');
       let data = jsonValue != null ? JSON.parse(jsonValue) : {};
-      let currentTotalGems = gemValue != null ? parseInt(gemValue) : 0;
-
       const cat = params.name;
       const diff = params.difficulty;
       const levelIdx = (parseInt(params.level) || 1) - 1;
@@ -149,28 +85,65 @@ export default function App() {
       }
 
       const stats = data[cat][diff];
-      const percentage = Math.round((score / quizData.length) * 100);
+      const percentage = Math.round((newScore / quizData.length) * 100);
 
-      if (percentage === 100 && stats.scores[levelIdx] < 100) {
-        currentTotalGems += 5;
-        setGemsEarned(5);
-        await AsyncStorage.setItem('total_gems', currentTotalGems.toString());
+      if (percentage > stats.scores[levelIdx]) {
+        stats.scores[levelIdx] = percentage;
+        if (isFinal) stats.times[levelIdx] = timeUsed;
       }
 
       if (percentage >= 70 && (levelIdx + 1) === stats.unlocked && (levelIdx + 1) < 9) {
         stats.unlocked = levelIdx + 2;
       }
 
-      if (percentage > stats.scores[levelIdx] || (percentage === stats.scores[levelIdx] && (stats.times[levelIdx] === null || timeUsed < stats.times[levelIdx]))) {
-        stats.scores[levelIdx] = percentage;
-        stats.times[levelIdx] = timeUsed;
-      }
-
       await AsyncStorage.setItem('levelData', JSON.stringify(data));
-    } catch (e) { console.error("Save Error:", e); }
+
+      if (isFinal && percentage === 100) {
+        const gemValue = await AsyncStorage.getItem('total_gems');
+        let currentGems = gemValue != null ? parseInt(gemValue) : 0;
+        currentGems += 5;
+        setGemsEarned(5);
+        await AsyncStorage.setItem('total_gems', currentGems.toString());
+      }
+    } catch (e) { console.error(e); }
   };
 
-  // --- Rendering ---
+  const handleAnswer = (option) => {
+    if (selectedOption || gameOverReason || paused) return;
+    setSelectedOption(option);
+
+    const isCorrect = option === quizData[currentIndex].correct;
+    const isLast = currentIndex + 1 >= quizData.length;
+    const finalScoreForThisStep = isCorrect ? score + 1 : score;
+
+    if (isCorrect || isLast || lives === 1) {
+      saveProgress(finalScoreForThisStep, isLast || (lives === 1 && !isCorrect));
+    }
+
+    setTimeout(() => {
+      if (isCorrect) {
+        setScore(finalScoreForThisStep);
+        if (!isLast) {
+          setCurrentIndex(prev => prev + 1);
+          setSelectedOption(null);
+        } else {
+          setGameOverReason('completed');
+        }
+      } else {
+        const newLives = lives - 1;
+        setLives(newLives);
+        if (newLives <= 0) {
+          setGameOverReason('lost_lives');
+        } else if (isLast) {
+          setGameOverReason('completed');
+        } else {
+          setCurrentIndex(prev => prev + 1);
+          setSelectedOption(null);
+        }
+      }
+    }, 600);
+  };
+
   if (gameOverReason) {
     return (
       <GameOverScreen 
@@ -180,7 +153,10 @@ export default function App() {
         timeUsed={timeUsed} 
         params={params}
         gemsEarned={gemsEarned}
-        onRestart={resetGame}
+        onRestart={() => {
+          setCurrentIndex(0); setScore(0); setLives(3); setTimeLeft(totalTime);
+          setSelectedOption(null); setGameOverReason(null); setGemsEarned(0); setPaused(false);
+        }}
       />
     );
   }
@@ -195,14 +171,32 @@ export default function App() {
         paused={paused}
         onPause={() => setPaused(true)}
       />
-      
+
+      {/* --- PAUSE MODAL --- */}
+      <Modal visible={paused} transparent animationType="fade">
+        <View style={localStyles.modalOverlay}>
+          <View style={localStyles.modalContent}>
+            <Text style={localStyles.modalTitle}>Game Paused</Text>
+            <TouchableOpacity 
+              style={localStyles.resumeButton} 
+              onPress={() => setPaused(false)}
+            >
+              <Text style={localStyles.buttonText}>RESUME</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[localStyles.resumeButton, { marginTop: 10, backgroundColor: '#E53935' }]} 
+              onPress={() => router.back()}
+            >
+              <Text style={localStyles.buttonText}>QUIT</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={globalStyles.questionCard}>
-          <Text style={globalStyles.questionText}>
-            {quizData[currentIndex]?.question}
-          </Text>
+          <Text style={globalStyles.questionText}>{quizData[currentIndex]?.question}</Text>
         </View>
-
         <View style={globalStyles.optionsContainer}>
           {quizData[currentIndex]?.options.map((opt) => (
             <OptionButton 
@@ -219,3 +213,11 @@ export default function App() {
     </View>
   );
 }
+
+const localStyles = StyleSheet.create({
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { width: '80%', backgroundColor: '#1E1E1E', borderRadius: 20, padding: 25, alignItems: 'center', borderWidth: 1, borderColor: '#333' },
+  modalTitle: { fontSize: 24, color: '#FFF', fontWeight: 'bold', marginBottom: 25 },
+  resumeButton: { backgroundColor: '#4CAF50', width: '100%', padding: 15, borderRadius: 12, alignItems: 'center' },
+  buttonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 }
+});
