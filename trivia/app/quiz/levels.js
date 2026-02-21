@@ -19,6 +19,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
+// --- 1. ADMOB IMPORT (COMMENTED TO PREVENT CRASH) ---
+// import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
+
 const { width } = Dimensions.get('window');
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -26,7 +29,7 @@ const MAP_HEIGHT = 1500;
 const LEVEL_COUNT = 9;
 const UNLOCK_COST = 3;
 const PADDING_TOP = 200;
-const PADDING_BOTTOM = 200;
+const PADDING_BOTTOM = 250; 
 
 const levels = Array.from({ length: LEVEL_COUNT }, (_, i) => {
   let xPos = width * 0.5;
@@ -71,7 +74,7 @@ export default function LevelMap() {
       let data = jsonValue != null ? JSON.parse(jsonValue) : {};
       const categoryData = data[name]?.[difficulty] || { 
         unlocked: 1, 
-        scores: Array(9).fill(0),
+        scores: Array(9).fill(0), 
         times: Array(9).fill(null) 
       };
       
@@ -89,13 +92,13 @@ export default function LevelMap() {
   useFocusEffect(
     React.useCallback(() => {
       loadProgress();
-    }, [])
+    }, [name, difficulty])
   );
 
   useEffect(() => {
     Animated.loop(
       Animated.timing(dashOffset, {
-        toValue: -40, // Negative for forward motion
+        toValue: -40,
         duration: 2000,
         easing: Easing.linear,
         useNativeDriver: true,
@@ -210,12 +213,11 @@ export default function LevelMap() {
         <View style={styles.glassHeader}>
           <View style={styles.headerLeft}>
             <Text style={styles.categoryText}>{name.toUpperCase()}</Text>
+            {/* FIXED: Changed div to View */}
             <View style={styles.headerDivider} />
             <Text style={styles.difficultyText}>{difficulty}</Text>
           </View>
-          
           <View style={{ flex: 1 }} /> 
-          
           <View style={styles.headerRight}>
             <View style={styles.gemBadge}>
               <Text style={styles.gemText}>{totalGems}</Text>
@@ -225,20 +227,31 @@ export default function LevelMap() {
         </View>
       </SafeAreaView>
 
+      {/* Ad Area */}
+      <View style={styles.adContainer}>
+        <View style={styles.adPlaceholder}>
+            <Text style={styles.adPlaceholderText}>AdMob Area (Ready for Build)</Text>
+        </View>
+      </View>
+
       {/* Modal */}
       <Modal animationType="fade" transparent={true} visible={infoLevel !== null} onRequestClose={() => setInfoLevel(null)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setInfoLevel(null)}>
           <View style={styles.scoreModal}>
             <View style={styles.modalHeaderIcon}><Ionicons name="medal" size={40} color="#FFD700" /></View>
             <Text style={styles.modalTitle}>Level {infoLevel} Stats</Text>
+            
             <View style={styles.scoreRow}>
               <Text style={styles.scoreLabel}>High Score</Text>
               <Text style={styles.scoreValue}>{infoLevel ? progress.scores[infoLevel - 1] : 0}%</Text>
             </View>
+
+            {/* FIXED: Changed div to View */}
             <View style={[styles.scoreRow, { borderTopWidth: 0, paddingTop: 0 }]}>
               <Text style={styles.scoreLabel}>Best Time</Text>
               <Text style={styles.scoreValue}>{infoLevel ? formatTime(progress.times[infoLevel - 1]) : '--'}</Text>
             </View>
+
             <TouchableOpacity style={styles.closeModalBtn} onPress={() => setInfoLevel(null)}>
               <Text style={styles.closeModalText}>GOT IT</Text>
             </TouchableOpacity>
@@ -250,7 +263,6 @@ export default function LevelMap() {
 }
 
 const styles = StyleSheet.create({
-  // ... (Styles remain the same as your input, which were already solid)
   container: { flex: 1 },
   headerContainer: { position: 'absolute', top: Platform.OS === 'ios' ? 0 : 30, left: 0, right: 0, paddingHorizontal: 16, zIndex: 100 },
   glassHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.92)', paddingVertical: 10, paddingHorizontal: 18, borderRadius: 30, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 },
@@ -261,6 +273,30 @@ const styles = StyleSheet.create({
   difficultyText: { fontSize: 12, color: '#9129d6', fontWeight: 'bold' },
   gemBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(232, 67, 147, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   gemText: { color: '#e84393', fontSize: 16, fontWeight: 'bold', marginRight: 4 },
+  
+  adContainer: {
+    position: 'absolute',
+    bottom: 0,
+    width: '100%',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    paddingBottom: Platform.OS === 'ios' ? 25 : 5,
+    borderTopWidth: 1,
+    borderTopColor: '#eee'
+  },
+  adPlaceholder: {
+    width: '100%',
+    height: 50,
+    backgroundColor: '#f8f9fa',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  adPlaceholderText: {
+    color: '#adb5bd',
+    fontSize: 10,
+    fontWeight: 'bold'
+  },
+
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
   scoreModal: { width: width * 0.8, backgroundColor: 'white', borderRadius: 30, padding: 30, alignItems: 'center', elevation: 20 },
   modalHeaderIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#fff9e6', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
