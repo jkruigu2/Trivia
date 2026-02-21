@@ -5,14 +5,14 @@
     "scheme": "trivia",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/playstore.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "main": "expo-router/entry",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/playstore.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#9129d6"
     },
     "ios": {
       "supportsTablet": true,
@@ -20,8 +20,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/playstore.png",
+        "backgroundColor": "#9129d6"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.jkruigu.trivia"
