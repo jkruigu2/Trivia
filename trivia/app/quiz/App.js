@@ -1,22 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  View, 
-  Text, 
-  ScrollView, 
-  Alert, 
-  Modal, 
-  TouchableOpacity, 
-  StyleSheet 
-} from 'react-native';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useQuizLogic } from './components/QuizLogic';
 import { QuizHeader, OptionButton } from './components/QuizUI';
 import GameOverScreen from './screens/GameOverScreen';
 import { styles as globalStyles } from './styles';
 
 const allData = require('./src/data.json');
 
+// Helper to shuffle options
 const shuffleArray = (array) => {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -29,14 +21,21 @@ const shuffleArray = (array) => {
 export default function App() {
   const params = useLocalSearchParams();
   const router = useRouter();
+
+  // --- Game State ---
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [score, setScore] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [paused, setPaused] = useState(false);
+  const [selectedOption, setSelectedOption] = useState(null);
   const [gameOverReason, setGameOverReason] = useState(null);
   const [gemsEarned, setGemsEarned] = useState(0);
 
-  // Memoized Filtering with Crash Protection
+  // --- Quiz Data Initialization ---
   const { quizData, totalTime } = useMemo(() => {
-    const targetDiff = (params.difficulty || '').toLowerCase();
-    const targetCat = params.name;
-    const targetLevel = parseInt(params.level);
+    const targetDiff = (params.difficulty || 'Easy').toLowerCase();
+    const targetCat = params.name || 'Adventure';
+    const targetLevel = parseInt(params.level) || 1;
 
     const filtered = allData.filter(q => 
       (q.difficulty || '').toLowerCase() === targetDiff && 
@@ -44,24 +43,89 @@ export default function App() {
       q.level === targetLevel
     );
 
-    const randomizedQuestions = filtered.map(question => ({
-      ...question,
-      options: shuffleArray(question.options)
+    const randomizedQuestions = filtered.map(q => ({
+      ...q,
+      options: shuffleArray(q.options || [])
     }));
 
     const timePerQ = targetDiff === "easy" ? 20 : targetDiff === "medium" ? 15 : 10;
-    const time = randomizedQuestions.length * timePerQ;
-
-    return { quizData: randomizedQuestions, totalTime: time };
+    return { 
+      quizData: randomizedQuestions, 
+      totalTime: randomizedQuestions.length * timePerQ 
+    };
   }, [params.level, params.name, params.difficulty]);
 
-  const {
-    currentIndex, score, lives, timeLeft, 
-    selectedOption, paused, 
-    setPaused, handleAnswer, resetLogic
-  } = useQuizLogic(quizData, totalTime, setGameOverReason);
+  const [timeLeft, setTimeLeft] = useState(totalTime);
 
-  // Trigger save logic when game completes
+  // --- The Timer Logic ---
+  useEffect(() => {
+    // STOP TIMER: If paused OR if a game over reason exists, do not run interval
+    if (paused || gameOverReason || timeLeft <= 0) return;
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setGameOverReason('timeout');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Cleanup on unmount or state change
+    return () => clearInterval(timer);
+  }, [paused, gameOverReason, timeLeft]);
+
+  // Calculate fixed time used for DB/UI
+  const timeUsed = Math.max(0, totalTime - timeLeft);
+
+  // --- Game Mechanics ---
+  const handleAnswer = (option) => {
+    if (selectedOption || gameOverReason) return;
+    setSelectedOption(option);
+
+    const isCorrect = option === quizData[currentIndex].correct;
+    
+    setTimeout(() => {
+      if (isCorrect) {
+        setScore(prev => prev + 1);
+        if (currentIndex + 1 < quizData.length) {
+          setCurrentIndex(prev => prev + 1);
+          setSelectedOption(null);
+        } else {
+          setGameOverReason('completed');
+        }
+      } else {
+        const newLives = lives - 1;
+        setLives(newLives);
+        if (newLives <= 0) {
+          setGameOverReason('lost_lives');
+        } else {
+          // If they got it wrong but have lives, move to next anyway (standard quiz style)
+          if (currentIndex + 1 < quizData.length) {
+            setCurrentIndex(prev => prev + 1);
+            setSelectedOption(null);
+          } else {
+            setGameOverReason('completed');
+          }
+        }
+      }
+    }, 600);
+  };
+
+  const resetGame = () => {
+    setCurrentIndex(0);
+    setScore(0);
+    setLives(3);
+    setTimeLeft(totalTime);
+    setSelectedOption(null);
+    setGameOverReason(null);
+    setGemsEarned(0);
+    setPaused(false);
+  };
+
+  // --- Persistence Logic ---
   useEffect(() => {
     if (gameOverReason === 'completed') {
       processLevelCompletion();
@@ -72,66 +136,51 @@ export default function App() {
     try {
       const jsonValue = await AsyncStorage.getItem('levelData');
       const gemValue = await AsyncStorage.getItem('total_gems');
-      
       let data = jsonValue != null ? JSON.parse(jsonValue) : {};
       let currentTotalGems = gemValue != null ? parseInt(gemValue) : 0;
 
       const cat = params.name;
       const diff = params.difficulty;
-      const currentLevel = parseInt(params.level);
-      const levelIdx = currentLevel - 1;
+      const levelIdx = (parseInt(params.level) || 1) - 1;
 
       if (!data[cat]) data[cat] = {};
       if (!data[cat][diff]) {
-        data[cat][diff] = { unlocked: 1, scores: Array(9).fill(0) };
+        data[cat][diff] = { unlocked: 1, scores: Array(9).fill(0), times: Array(9).fill(null) };
       }
 
-      const currentProgress = data[cat][diff];
-      const totalQuestions = quizData.length || 1;
-      const percentage = Math.round((score / totalQuestions) * 100);
-      const previousBest = currentProgress.scores[levelIdx] || 0;
+      const stats = data[cat][diff];
+      const percentage = Math.round((score / quizData.length) * 100);
 
-      if (percentage === 100) {
-        Alert.alert("Perfect Score! 🌟", "Unstoppable! You got every single question right.");
-      }
-
-      if (percentage === 100 && previousBest < 100) {
-        let x = currentTotalGems + 5;
+      if (percentage === 100 && stats.scores[levelIdx] < 100) {
+        currentTotalGems += 5;
         setGemsEarned(5);
-        await AsyncStorage.setItem('total_gems', x.toString());
+        await AsyncStorage.setItem('total_gems', currentTotalGems.toString());
       }
 
-      if (percentage >= 70) {
-        if (currentLevel === currentProgress.unlocked && currentLevel < 9) {
-          currentProgress.unlocked = currentLevel + 1;
-        }
+      if (percentage >= 70 && (levelIdx + 1) === stats.unlocked && (levelIdx + 1) < 9) {
+        stats.unlocked = levelIdx + 2;
       }
 
-      if (percentage > previousBest) {
-        currentProgress.scores[levelIdx] = percentage;
+      if (percentage > stats.scores[levelIdx] || (percentage === stats.scores[levelIdx] && (stats.times[levelIdx] === null || timeUsed < stats.times[levelIdx]))) {
+        stats.scores[levelIdx] = percentage;
+        stats.times[levelIdx] = timeUsed;
       }
 
-      data[cat][diff] = currentProgress;
       await AsyncStorage.setItem('levelData', JSON.stringify(data));
-    } catch (e) {
-      console.error("Save Progress Error:", e);
-    }
+    } catch (e) { console.error("Save Error:", e); }
   };
 
+  // --- Rendering ---
   if (gameOverReason) {
     return (
       <GameOverScreen 
         reason={gameOverReason} 
         score={score} 
         total={quizData.length}
-        timeLeft={timeLeft} 
+        timeUsed={timeUsed} 
         params={params}
         gemsEarned={gemsEarned}
-        onRestart={() => { 
-          setGameOverReason(null); 
-          setGemsEarned(0);
-          resetLogic(); 
-        }}
+        onRestart={resetGame}
       />
     );
   }
@@ -145,67 +194,24 @@ export default function App() {
         lives={lives}
         paused={paused}
         onPause={() => setPaused(true)}
-        description={quizData[currentIndex]?.description}
       />
-
-      {/* --- PAUSE MODAL --- */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={paused}
-        onRequestClose={() => setPaused(false)}
-      >
-        <View style={localStyles.modalOverlay}>
-          <View style={localStyles.modalContent}>
-            <Text style={localStyles.modalTitle}>Game Paused</Text>
-            <Text style={localStyles.modalSubtitle}>Current Score: {score}</Text>
-            
-            <TouchableOpacity 
-              style={localStyles.resumeButton} 
-              onPress={() => setPaused(false)}
-            >
-              <Text style={localStyles.buttonText}>Resume</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={localStyles.restartButton} 
-              onPress={() => {
-                setPaused(false);
-                resetLogic();
-              }}
-            >
-              <Text style={localStyles.buttonText}>Restart Level</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={localStyles.exitButton} 
-              onPress={() => {
-                setPaused(false);
-                router.back();
-              }}
-            >
-              <Text style={localStyles.exitText}>Quit Quiz</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <ScrollView>
+      
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={globalStyles.questionCard}>
           <Text style={globalStyles.questionText}>
-            {quizData[currentIndex]?.question || "No Question Found"}
+            {quizData[currentIndex]?.question}
           </Text>
         </View>
 
         <View style={globalStyles.optionsContainer}>
           {quizData[currentIndex]?.options.map((opt) => (
             <OptionButton 
-              key={`${currentIndex}-${opt}`} 
+              key={opt} 
               option={opt}
               isSelected={selectedOption === opt}
               isCorrect={opt === quizData[currentIndex].correct}
               isDisabled={!!selectedOption}
-              onSelect={handleAnswer}
+              onSelect={() => handleAnswer(opt)}
             />
           ))}
         </View>
@@ -213,63 +219,3 @@ export default function App() {
     </View>
   );
 }
-
-// Local styles for the Modal
-const localStyles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    width: '85%',
-    backgroundColor: '#1E1E1E',
-    borderRadius: 25,
-    padding: 30,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  modalTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#FFF',
-    marginBottom: 5,
-  },
-  modalSubtitle: {
-    fontSize: 16,
-    color: '#BBB',
-    marginBottom: 25,
-  },
-  resumeButton: {
-    backgroundColor: '#4CAF50',
-    width: '100%',
-    padding: 15,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  restartButton: {
-    backgroundColor: '#2196F3',
-    width: '100%',
-    padding: 15,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  buttonText: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  exitButton: {
-    marginTop: 10,
-    padding: 10,
-  },
-  exitText: {
-    color: '#FF5252',
-    fontSize: 16,
-    fontWeight: '500',
-  }
-});

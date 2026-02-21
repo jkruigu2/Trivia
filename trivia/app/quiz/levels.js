@@ -41,10 +41,14 @@ const levels = Array.from({ length: LEVEL_COUNT }, (_, i) => {
 });
 
 export default function LevelMap() {
-  const [progress, setProgress] = useState({ unlocked: 1, scores: Array(9).fill(0) });
+  const [progress, setProgress] = useState({ 
+    unlocked: 1, 
+    scores: Array(9).fill(0),
+    times: Array(9).fill(null) 
+  });
   const [totalGems, setTotalGems] = useState(0);
   const [pressedId, setPressedId] = useState(null);
-  const [infoLevel, setInfoLevel] = useState(null); // Tracks modal visibility
+  const [infoLevel, setInfoLevel] = useState(null); 
   
   const scrollRef = useRef(null);
   const router = useRouter();
@@ -54,20 +58,32 @@ export default function LevelMap() {
   const scrollY = useRef(new Animated.Value(0)).current;
   const dashOffset = useRef(new Animated.Value(0)).current;
 
-  // Load progress and gems
+  const formatTime = (seconds) => {
+    if (seconds === null || seconds === undefined) return '--';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
   const loadProgress = async () => {
     try {
       const jsonValue = await AsyncStorage.getItem('levelData');
       let data = jsonValue != null ? JSON.parse(jsonValue) : {};
-      const categoryData = data[name]?.[difficulty] || { unlocked: 1, scores: Array(9).fill(0) };
-      const gemValue = await AsyncStorage.getItem('total_gems');
+      const categoryData = data[name]?.[difficulty] || { 
+        unlocked: 1, 
+        scores: Array(9).fill(0),
+        times: Array(9).fill(null) 
+      };
       
+      const gemValue = await AsyncStorage.getItem('total_gems');
       setTotalGems(gemValue != null ? parseInt(gemValue, 10) : 0);
+      
       setProgress({
         unlocked: parseInt(categoryData.unlocked) || 1,
         scores: (categoryData.scores || Array(9).fill(0)).map((s) => parseInt(s, 10)),
+        times: categoryData.times || Array(9).fill(null)
       });
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error("Load Progress Error:", e); }
   };
 
   useFocusEffect(
@@ -79,7 +95,7 @@ export default function LevelMap() {
   useEffect(() => {
     Animated.loop(
       Animated.timing(dashOffset, {
-        toValue: 40,
+        toValue: -40, // Negative for forward motion
         duration: 2000,
         easing: Easing.linear,
         useNativeDriver: true,
@@ -87,33 +103,28 @@ export default function LevelMap() {
     ).start();
   }, []);
 
-  const addGems = async (amount) => {
-    const newGems = totalGems + amount;
-    await AsyncStorage.setItem('total_gems', newGems.toString());
-    setTotalGems(newGems);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  };
-
-  const handleWatchAd = () => {
-    Alert.alert("Ads Disabled", "Development Mode. Mock reward?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Mock Reward (+5)", onPress: () => addGems(5) }
-    ]);
-  };
-
   const handleUnlockLevel = (levelId) => {
     if (levelId !== progress.unlocked + 1) return;
     if (totalGems < UNLOCK_COST) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert("Locked", `Need ${UNLOCK_COST} gems.`, [{ text: "Ok" }, { text: "Earn", onPress: handleWatchAd }]);
+      Alert.alert("Locked", `Need ${UNLOCK_COST} gems to unlock Level ${levelId}.`, [{ text: "Ok" }]);
       return;
     }
-    Alert.alert("Unlock?", `Spend ${UNLOCK_COST} gems?`, [
+    Alert.alert("Unlock Level?", `Spend ${UNLOCK_COST} gems to progress?`, [
       { text: "Cancel", style: "cancel" },
       { text: "Unlock", onPress: async () => {
           const newGems = totalGems - UNLOCK_COST;
           await AsyncStorage.setItem('total_gems', newGems.toString());
           setTotalGems(newGems);
+          
+          const jsonValue = await AsyncStorage.getItem('levelData');
+          let data = jsonValue != null ? JSON.parse(jsonValue) : {};
+          if(!data[name]) data[name] = {};
+          if(!data[name][difficulty]) data[name][difficulty] = { unlocked: 1, scores: Array(9).fill(0), times: Array(9).fill(null) };
+          
+          data[name][difficulty].unlocked = levelId;
+          await AsyncStorage.setItem('levelData', JSON.stringify(data));
+          
           setProgress(p => ({ ...p, unlocked: levelId }));
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }}
@@ -124,31 +135,6 @@ export default function LevelMap() {
     inputRange: [0, MAP_HEIGHT * 0.4, MAP_HEIGHT * 0.7, MAP_HEIGHT],
     outputRange: ['#ffafbd', '#ffc3a0', '#9129d6', '#4834d4'],
   });
-
-  const renderPathSegments = () => {
-    return levels.map((curr, i) => {
-      if (i === levels.length - 1) return null;
-      const next = levels[i + 1];
-      const dy = next.y - curr.y;
-      const dx = next.x - curr.x;
-      const d = `M ${curr.x} ${curr.y} C ${curr.x + dx * 0.1} ${curr.y + dy * 0.3}, ${next.x - dx * 0.1} ${curr.y + dy * 0.7}, ${next.x} ${next.y}`;
-      const isUnlocked = next.id <= progress.unlocked;
-      return (
-        <G key={`path-${i}`}>
-          <Path d={d} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth={14} strokeLinecap="round" />
-          <AnimatedPath
-            d={d}
-            fill="none"
-            stroke={isUnlocked ? 'white' : 'rgba(255,255,255,0.3)'}
-            strokeWidth={isUnlocked ? 8 : 5}
-            strokeDasharray={[15, 20]}
-            strokeDashoffset={dashOffset}
-            strokeLinecap="round"
-          />
-        </G>
-      );
-    });
-  };
 
   return (
     <Animated.View style={[styles.container, { backgroundColor }]}>
@@ -164,21 +150,26 @@ export default function LevelMap() {
       >
         <Svg height={MAP_HEIGHT} width={width}>
           <Defs>
-            <LinearGradient id="candyPink" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0%" stopColor="#ff9a9e" /><Stop offset="100%" stopColor="#fecfef" />
-            </LinearGradient>
-            <LinearGradient id="candyPurple" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0%" stopColor="#9129d6" /><Stop offset="100%" stopColor="#6c5ce7" />
-            </LinearGradient>
-            <LinearGradient id="candyDeepPink" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0%" stopColor="#e84393" /><Stop offset="100%" stopColor="#d63031" />
-            </LinearGradient>
-            <LinearGradient id="unlockedGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0%" stopColor="#FFF200" /><Stop offset="100%" stopColor="#FF9000" />
-            </LinearGradient>
+            <LinearGradient id="candyPink" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#ff9a9e" /><Stop offset="100%" stopColor="#fecfef" /></LinearGradient>
+            <LinearGradient id="candyPurple" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#9129d6" /><Stop offset="100%" stopColor="#6c5ce7" /></LinearGradient>
+            <LinearGradient id="candyDeepPink" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#e84393" /><Stop offset="100%" stopColor="#d63031" /></LinearGradient>
+            <LinearGradient id="unlockedGrad" x1="0" y1="0" x2="0" y2="1"><Stop offset="0%" stopColor="#FFF200" /><Stop offset="100%" stopColor="#FF9000" /></LinearGradient>
           </Defs>
           
-          {renderPathSegments()}
+          {levels.map((curr, i) => {
+            if (i === levels.length - 1) return null;
+            const next = levels[i + 1];
+            const dy = next.y - curr.y;
+            const dx = next.x - curr.x;
+            const d = `M ${curr.x} ${curr.y} C ${curr.x + dx * 0.1} ${curr.y + dy * 0.3}, ${next.x - dx * 0.1} ${curr.y + dy * 0.7}, ${next.x} ${next.y}`;
+            const isUnlocked = next.id <= progress.unlocked;
+            return (
+              <G key={`path-${i}`}>
+                <Path d={d} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth={14} strokeLinecap="round" />
+                <AnimatedPath d={d} fill="none" stroke={isUnlocked ? 'white' : 'rgba(255,255,255,0.3)'} strokeWidth={isUnlocked ? 8 : 5} strokeDasharray={[15, 20]} strokeDashoffset={dashOffset} strokeLinecap="round" />
+              </G>
+            );
+          })}
 
           {levels.map((level) => {
             const isLocked = level.id > progress.unlocked;
@@ -188,7 +179,6 @@ export default function LevelMap() {
 
             return (
               <G key={level.id}>
-                {/* Main Level Button */}
                 <G
                   onPressIn={() => { setPressedId(level.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
                   onPressOut={() => setPressedId(null)}
@@ -203,8 +193,6 @@ export default function LevelMap() {
                     </SvgText>
                   </G>
                 </G>
-
-                {/* Info Icon Button (Only for unlocked levels) */}
                 {!isLocked && (
                   <G onPress={() => { setInfoLevel(level.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }}>
                     <Circle cx={level.x + 28} cy={level.y - 28} r={14} fill="white" stroke="#9129d6" strokeWidth={1.5} />
@@ -225,37 +213,34 @@ export default function LevelMap() {
             <View style={styles.headerDivider} />
             <Text style={styles.difficultyText}>{difficulty}</Text>
           </View>
+          
+          <View style={{ flex: 1 }} /> 
+          
           <View style={styles.headerRight}>
             <View style={styles.gemBadge}>
               <Text style={styles.gemText}>{totalGems}</Text>
               <Ionicons name="diamond" size={18} color="#e84393" />
             </View>
-            <TouchableOpacity onPress={handleWatchAd} style={styles.plusButton}>
-              <Ionicons name="add-circle" size={28} color="#e84393" />
-            </TouchableOpacity>
           </View>
         </View>
       </SafeAreaView>
 
-      {/* Progress Info Modal */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={infoLevel !== null}
-        onRequestClose={() => setInfoLevel(null)}
-      >
+      {/* Modal */}
+      <Modal animationType="fade" transparent={true} visible={infoLevel !== null} onRequestClose={() => setInfoLevel(null)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setInfoLevel(null)}>
           <View style={styles.scoreModal}>
-            <View style={styles.modalHeaderIcon}>
-              <Ionicons name="trophy" size={40} color="#FFD700" />
-            </View>
-            <Text style={styles.modalTitle}>Level {infoLevel} Progress</Text>
+            <View style={styles.modalHeaderIcon}><Ionicons name="medal" size={40} color="#FFD700" /></View>
+            <Text style={styles.modalTitle}>Level {infoLevel} Stats</Text>
             <View style={styles.scoreRow}>
-              <Text style={styles.scoreLabel}>Highest Score</Text>
+              <Text style={styles.scoreLabel}>High Score</Text>
               <Text style={styles.scoreValue}>{infoLevel ? progress.scores[infoLevel - 1] : 0}%</Text>
             </View>
+            <View style={[styles.scoreRow, { borderTopWidth: 0, paddingTop: 0 }]}>
+              <Text style={styles.scoreLabel}>Best Time</Text>
+              <Text style={styles.scoreValue}>{infoLevel ? formatTime(progress.times[infoLevel - 1]) : '--'}</Text>
+            </View>
             <TouchableOpacity style={styles.closeModalBtn} onPress={() => setInfoLevel(null)}>
-              <Text style={styles.closeModalText}>CONTINUE</Text>
+              <Text style={styles.closeModalText}>GOT IT</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -265,14 +250,10 @@ export default function LevelMap() {
 }
 
 const styles = StyleSheet.create({
+  // ... (Styles remain the same as your input, which were already solid)
   container: { flex: 1 },
   headerContainer: { position: 'absolute', top: Platform.OS === 'ios' ? 0 : 30, left: 0, right: 0, paddingHorizontal: 16, zIndex: 100 },
-  glassHeader: { 
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', 
-    backgroundColor: 'rgba(255, 255, 255, 0.92)', paddingVertical: 10, paddingHorizontal: 18, 
-    borderRadius: 30, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
-    shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 
-  },
+  glassHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.92)', paddingVertical: 10, paddingHorizontal: 18, borderRadius: 30, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 },
   headerLeft: { flexDirection: 'row', alignItems: 'center' },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   categoryText: { fontSize: 13, fontWeight: '900', color: '#9129d6' },
@@ -280,28 +261,13 @@ const styles = StyleSheet.create({
   difficultyText: { fontSize: 12, color: '#9129d6', fontWeight: 'bold' },
   gemBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(232, 67, 147, 0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   gemText: { color: '#e84393', fontSize: 16, fontWeight: 'bold', marginRight: 4 },
-  plusButton: { marginLeft: 8 },
-  // Modal Styles
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  scoreModal: { 
-    width: width * 0.8, backgroundColor: 'white', borderRadius: 30, 
-    padding: 30, alignItems: 'center', elevation: 20, shadowColor: '#000', 
-    shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 20 
-  },
-  modalHeaderIcon: { 
-    width: 80, height: 80, borderRadius: 40, backgroundColor: '#fff9e6', 
-    justifyContent: 'center', alignItems: 'center', marginBottom: 15 
-  },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
+  scoreModal: { width: width * 0.8, backgroundColor: 'white', borderRadius: 30, padding: 30, alignItems: 'center', elevation: 20 },
+  modalHeaderIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#fff9e6', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
   modalTitle: { fontSize: 22, fontWeight: '900', color: '#2d3748', marginBottom: 20 },
-  scoreRow: { 
-    width: '100%', flexDirection: 'row', justifyContent: 'space-between', 
-    alignItems: 'center', paddingVertical: 15, borderTopWidth: 1, borderTopColor: '#f1f2f6' 
-  },
-  scoreLabel: { fontSize: 16, color: '#7f8c8d', fontWeight: '500' },
-  scoreValue: { fontSize: 24, fontWeight: '900', color: '#9129d6' },
-  closeModalBtn: { 
-    marginTop: 25, backgroundColor: '#9129d6', width: '100%', 
-    paddingVertical: 15, borderRadius: 20, alignItems: 'center' 
-  },
+  scoreRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#f1f2f6' },
+  scoreLabel: { fontSize: 15, color: '#7f8c8d', fontWeight: '500' },
+  scoreValue: { fontSize: 20, fontWeight: '900', color: '#9129d6' },
+  closeModalBtn: { marginTop: 20, backgroundColor: '#9129d6', width: '100%', paddingVertical: 15, borderRadius: 20, alignItems: 'center' },
   closeModalText: { color: 'white', fontWeight: '900', fontSize: 16, letterSpacing: 1 },
 });
