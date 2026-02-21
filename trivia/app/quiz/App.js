@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, ScrollView, StyleSheet, Modal, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { View, Text, ScrollView, StyleSheet, Modal, TouchableOpacity, Animated } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QuizHeader, OptionButton } from './components/QuizUI';
@@ -21,6 +21,7 @@ export default function App() {
   const params = useLocalSearchParams();
   const router = useRouter();
 
+  // --- State ---
   const [currentIndex, setCurrentIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
@@ -28,6 +29,11 @@ export default function App() {
   const [selectedOption, setSelectedOption] = useState(null);
   const [gameOverReason, setGameOverReason] = useState(null);
   const [gemsEarned, setGemsEarned] = useState(0);
+  
+  // Achievement States
+  const [showUnlockChip, setShowUnlockChip] = useState(false);
+  const [unlockedLevel, setUnlockedLevel] = useState(null);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const { quizData, totalTime } = useMemo(() => {
     const targetDiff = (params.difficulty || 'Easy').toLowerCase();
@@ -51,7 +57,29 @@ export default function App() {
 
   const [timeLeft, setTimeLeft] = useState(totalTime);
 
-  // Timer logic - halts if paused is true
+  // --- Achievement Animation Logic ---
+  const triggerAchievement = (level) => {
+    setUnlockedLevel(level);
+    setShowUnlockChip(true);
+    
+    // Fade In
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+
+    // Fade Out after 3 seconds
+    setTimeout(() => {
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }).start(() => setShowUnlockChip(false));
+    }, 3000);
+  };
+
+  // --- Timer Logic ---
   useEffect(() => {
     if (paused || gameOverReason || timeLeft <= 0) return;
 
@@ -92,8 +120,10 @@ export default function App() {
         if (isFinal) stats.times[levelIdx] = timeUsed;
       }
 
+      // Logic for unlocking next level
       if (percentage >= 70 && (levelIdx + 1) === stats.unlocked && (levelIdx + 1) < 9) {
         stats.unlocked = levelIdx + 2;
+        triggerAchievement(levelIdx + 2); // Show the chip!
       }
 
       await AsyncStorage.setItem('levelData', JSON.stringify(data));
@@ -153,6 +183,7 @@ export default function App() {
         timeUsed={timeUsed} 
         params={params}
         gemsEarned={gemsEarned}
+        description={quizData[currentIndex].description}
         onRestart={() => {
           setCurrentIndex(0); setScore(0); setLives(3); setTimeLeft(totalTime);
           setSelectedOption(null); setGameOverReason(null); setGemsEarned(0); setPaused(false);
@@ -171,6 +202,16 @@ export default function App() {
         paused={paused}
         onPause={() => setPaused(true)}
       />
+
+      {/* --- ACHIEVEMENT CHIP --- */}
+      {showUnlockChip && (
+        <Animated.View style={[localStyles.chipContainer, { opacity: fadeAnim }]}>
+          <View style={localStyles.chip}>
+            <Text style={localStyles.chipEmoji}>🎉</Text>
+            <Text style={localStyles.chipText}>Level {unlockedLevel} Unlocked!</Text>
+          </View>
+        </Animated.View>
+      )}
 
       {/* --- PAUSE MODAL --- */}
       <Modal visible={paused} transparent animationType="fade">
@@ -219,5 +260,32 @@ const localStyles = StyleSheet.create({
   modalContent: { width: '80%', backgroundColor: '#1E1E1E', borderRadius: 20, padding: 25, alignItems: 'center', borderWidth: 1, borderColor: '#333' },
   modalTitle: { fontSize: 24, color: '#FFF', fontWeight: 'bold', marginBottom: 25 },
   resumeButton: { backgroundColor: '#4CAF50', width: '100%', padding: 15, borderRadius: 12, alignItems: 'center' },
-  buttonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 }
+  buttonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
+  
+  // Achievement Chip Styles
+  chipContainer: {
+    position: 'absolute',
+    top: 100,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  chip: {
+    flexDirection: 'row',
+    backgroundColor: '#FFD700',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: '#FFF',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    alignItems: 'center',
+  },
+  chipEmoji: { fontSize: 22, marginRight: 10 },
+  chipText: { color: '#000', fontWeight: '900', fontSize: 16, textTransform: 'uppercase' },
 });

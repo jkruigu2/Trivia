@@ -1,25 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { SafeAreaView, Text, TouchableOpacity, View, StyleSheet, Dimensions } from 'react-native';
+import { SafeAreaView, Text, TouchableOpacity, View, StyleSheet, Dimensions, Animated } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
 
-// Updated props: replaced timeLeft/totalTime with timeUsed
 export default function GameOverScreen({ reason, score, total, timeUsed, params, onRestart, maxLevel }) {
   const router = useRouter();
   const [best, setBest] = useState(null);
+  const [gemsAwarded, setGemsAwarded] = useState(false); // Track if gems were given this session
+  const fadeAnim = useState(new Animated.Value(0))[0]; // For the reward chip animation
+
   const intLevel = parseInt(params.level, 10);
   const category = params.name || 'Adventure';
   const difficulty = params.difficulty || 'Easy';
+  const isPerfect = score === total;
 
   const saveProgress = async () => {
     try {
       const jsonValue = await AsyncStorage.getItem('levelData');
       let data = jsonValue != null ? JSON.parse(jsonValue) : {};
 
-      // Initialize nested structure
       if (!data[category]) data[category] = {};
       if (!data[category][difficulty]) {
         data[category][difficulty] = {
@@ -32,13 +34,13 @@ export default function GameOverScreen({ reason, score, total, timeUsed, params,
       const currentStats = data[category][difficulty];
       const levelIdx = intLevel - 1;
 
-      // 1. Update High Score (Percentage)
+      // 1. Update High Score
       const currentScorePercent = Math.round((score / total) * 100);
       if (currentScorePercent > (currentStats.scores[levelIdx] || 0)) {
         currentStats.scores[levelIdx] = currentScorePercent;
       }
 
-      // 2. Update Best Time (Using timeUsed directly)
+      // 2. Update Best Time
       const previousBest = currentStats.times[levelIdx];
       if (previousBest === null || timeUsed < previousBest) {
         currentStats.times[levelIdx] = timeUsed;
@@ -47,9 +49,17 @@ export default function GameOverScreen({ reason, score, total, timeUsed, params,
         setBest(previousBest);
       }
 
-      // 3. Unlock Next Level (if current level is cleared perfectly)
-      if (score === total && intLevel === currentStats.unlocked && intLevel < maxLevel) {
-        currentStats.unlocked = intLevel + 1;
+      // 3. Unlock Next Level & Handle Rewards
+      if (isPerfect) {
+        // Handle Level Unlock
+        if (intLevel === currentStats.unlocked && intLevel < maxLevel) {
+          currentStats.unlocked = intLevel + 1;
+        }
+        
+        // --- NEW: Gem Reward Logic ---
+        await awardGems(5);
+        setGemsAwarded(true);
+        triggerRewardAnimation();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
 
@@ -57,6 +67,23 @@ export default function GameOverScreen({ reason, score, total, timeUsed, params,
     } catch (e) {
       console.error("Save Progress Error:", e);
     }
+  };
+
+  const awardGems = async (amount) => {
+    try {
+      const currentGems = await AsyncStorage.getItem('totalGems');
+      const totalGems = (parseInt(currentGems, 10) || 0) + amount;
+      await AsyncStorage.setItem('totalGems', totalGems.toString());
+    } catch (e) {
+      console.error("Gem Save Error:", e);
+    }
+  };
+
+  const triggerRewardAnimation = () => {
+    Animated.sequence([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.delay(2000),
+    ]).start();
   };
 
   const fetchBest = async () => {
@@ -73,7 +100,6 @@ export default function GameOverScreen({ reason, score, total, timeUsed, params,
   };
 
   useEffect(() => {
-    // Only save if the game was actually completed with some points
     if (reason === 'completed' && score > 0) {
       saveProgress();
     } else {
@@ -81,10 +107,15 @@ export default function GameOverScreen({ reason, score, total, timeUsed, params,
     }
   }, []);
 
-  const isPerfect = score === total;
-
   return (
     <SafeAreaView style={styles.container}>
+      {/* --- NEW: Gem Reward Chip --- */}
+      {isPerfect && (
+        <Animated.View style={[styles.rewardChip, { opacity: fadeAnim, transform: [{ translateY: fadeAnim.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }] }]}>
+          <Text style={styles.rewardText}>💎 You have been rewarded 5 gems!</Text>
+        </Animated.View>
+      )}
+
       <View style={styles.card}>
         <Text style={styles.gameOverTitle}>
           {isPerfect ? "MAJESTIC! ✨" : "KEEP GOING!"}
@@ -127,6 +158,20 @@ export default function GameOverScreen({ reason, score, total, timeUsed, params,
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#2D1B4E', justifyContent: 'center', alignItems: 'center' },
+  // Reward Chip Styling
+  rewardChip: {
+    backgroundColor: '#4C1D95',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#FACC15',
+    marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rewardText: { color: '#FACC15', fontWeight: 'bold', fontSize: 15 },
+  
   card: { width: width * 0.85, backgroundColor: '#3D2B5E', borderRadius: 30, padding: 30, alignItems: 'center', borderWidth: 2, borderColor: '#F472B6', elevation: 10 },
   gameOverTitle: { fontSize: 32, fontWeight: '900', color: '#F472B6', marginBottom: 20, textAlign: 'center', letterSpacing: 2 },
   scoreContainer: { alignItems: 'center', marginBottom: 30 },
